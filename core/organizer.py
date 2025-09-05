@@ -7,33 +7,30 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from .classifier import FileClassifier
 from .utils import get_all_desktop_paths
 
-try:
-    import win32api
-    import win32con
-
-    WIN32_AVAILABLE = True
-except ImportError:
-    WIN32_AVAILABLE = False
-    logging.getLogger(__name__).warning("Модуль pywin32 не найден. Настройка иконок будет отключена.")
-
-
 class DesktopOrganizer(QObject):
-    # --- ДОБАВЛЕН НОВЫЙ СИГНАЛ ---
     status_updated = pyqtSignal(str)
     progress_updated = pyqtSignal(int)
     organization_completed = pyqtSignal(str)
     operation_logged = pyqtSignal(dict)
+    # --- НОВЫЙ СИГНАЛ ДЛЯ ИНТЕГРАЦИИ С BoxManager ---
+    file_classified_for_box = pyqtSignal(str, str) # (category, file_path)
 
     def __init__(self, config):
         super().__init__()
         self.logger = logging.getLogger(__name__)
-        self.classifier = FileClassifier()
         self.desktop_paths = get_all_desktop_paths()
+        # --- ИЗМЕНЕНИЕ: Инициализация нового классификатора ---
+        self.classifier = FileClassifier(config)
         self.update_config(config)
+        # --- НОВОЕ: Путь к скрытому хранилищу ---
+        if self.desktop_paths:
+            self.storage_path = Path(self.desktop_paths[0]).parent / ".DesktopManagerStorage"
+            self.storage_path.mkdir(exist_ok=True)
+            self.logger.info(f"Хранилище файлов: {self.storage_path}")
 
     def update_config(self, config):
         self.config = config
-        self.classifier.categories = self.config.get('categories', {})
+        self.classifier.update_config(config)
         self.auto_organize = self.config.get('auto_organize_enabled', True)
 
     def organize_all_desktops(self):
@@ -45,22 +42,21 @@ class DesktopOrganizer(QObject):
 
     def organize_single_desktop(self, desktop_path: Path):
         try:
-            entries = list(desktop_path.iterdir())
+            entries = [e for e in desktop_path.iterdir() if e.is_file()]
             total_items = len(entries)
             moved_count = 0
             operation_details = {'type': 'organize', 'moved_files': []}
 
             for i, entry in enumerate(entries):
-                # --- ОТПРАВКА СИГНАЛА О ТЕКУЩЕМ СТАТУСЕ ---
                 self.status_updated.emit(f"Проверка: {entry.name}")
 
-                if entry.name.startswith(
-                        ".") or entry.name == "desktop.ini" or entry.name in self.classifier.categories:
+                if entry.name.startswith(".") or entry.name == "desktop.ini":
                     continue
 
-                category = self.classifier.classify_file(entry)
-                if category and category != "Папки":
-                    moved_info = self._move_to_category(entry, category, desktop_path)
+                # --- ИЗМЕНЕНИЕ: Используем новый классификатор ---
+                target_box = self.classifier.classify_file(entry)
+                if target_box:
+                    moved_info = self._move_to_storage(entry, target_box)
                     if moved_info:
                         operation_details['moved_files'].append(moved_info)
                         moved_count += 1
@@ -81,87 +77,30 @@ class DesktopOrganizer(QObject):
             return
 
         file_path = Path(file_path_str)
-        category = self.classifier.classify_file(file_path)
-        if category and category != "Папки":
-            for desktop_path_str in self.desktop_paths:
-                desktop_path = Path(desktop_path_str)
-                if file_path.parent == desktop_path:
-                    self._move_to_category(file_path, category, desktop_path)
-                    break
+        target_box = self.classifier.classify_file(file_path)
+        if target_box:
+            # Убедимся, что файл находится на одном из отслеживаемых рабочих столов
+            if any(file_path.parent == Path(p) for p in self.desktop_paths):
+                 self._move_to_storage(file_path, target_box)
 
-    def _move_to_category(self, src_path: Path, category: str, desktop_path: Path) -> dict:
-        dest_dir = desktop_path / category
-
-        try:
-            dest_dir.mkdir(exist_ok=True)
-        except PermissionError:
-            self.logger.error(f"Отказано в доступе при создании папки: {dest_dir}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Неизвестная ошибка при создании папки {dest_dir}: {e}")
+    def _move_to_storage(self, src_path: Path, target_box: str) -> dict:
+        """Перемещает файл в центральное хранилище и сообщает UI."""
+        if not self.storage_path:
+            self.logger.error("Путь к хранилищу не определен.")
             return None
 
-        dest_path = dest_dir / src_path.name
+        dest_path = self.storage_path / src_path.name
         counter = 1
         while dest_path.exists():
-            dest_path = dest_dir / f"{src_path.stem}_{counter}{src_path.suffix}"
+            dest_path = self.storage_path / f"{src_path.stem}_{counter}{src_path.suffix}"
             counter += 1
 
         try:
             shutil.move(str(src_path), str(dest_path))
-            self.logger.info(f"Файл перемещен: '{src_path.name}' -> '{dest_path.parent.name}'")
-            self._set_category_icon(dest_dir, category)
+            self.logger.info(f"Файл перемещен в хранилище: '{src_path.name}' -> '{dest_path}'")
+            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Отправляем сигнал для BoxManager ---
+            self.file_classified_for_box.emit(target_box, str(dest_path))
             return {'original': str(src_path), 'new': str(dest_path)}
         except Exception as e:
-            self.logger.error(f"Ошибка перемещения файла '{src_path.name}': {e}")
+            self.logger.error(f"Ошибка перемещения файла '{src_path.name}' в хранилище: {e}")
             return None
-
-    def _set_category_icon(self, folder_path: Path, category: str):
-        if not WIN32_AVAILABLE:
-            return
-
-        try:
-            icon_path = None
-            custom_icons = self.config.get('category_icons', {})
-            if category in custom_icons and Path(custom_icons[category]).exists():
-                icon_path = custom_icons[category]
-            else:
-                icon_map = {
-                    "Программы": "shell32.dll,3",
-                    "Документы": "shell32.dll,4",
-                    "Изображения": "imageres.dll,11",
-                    "Медиа": "imageres.dll,10",
-                    "Архивы": "imageres.dll,56",
-                    "Код": "shell32.dll,74",
-                }
-                icon_path = icon_map.get(category)
-
-            if icon_path:
-                ini_path = folder_path / "desktop.ini"
-
-                if ini_path.exists():
-                    return
-
-                with open(ini_path, "w", encoding="utf-8") as f:
-                    f.write("[.ShellClassInfo]\n")
-                    if icon_path.lower().endswith('.ico'):
-                        f.write(f"IconResource={icon_path},0\n")
-                    else:
-                        f.write(f"IconResource={icon_path}\n")
-
-                win32api.SetFileAttributes(str(ini_path), win32con.FILE_ATTRIBUTE_HIDDEN)
-                win32api.SetFileAttributes(str(folder_path), win32con.FILE_ATTRIBUTE_SYSTEM)
-        except Exception as e:
-            self.logger.warning(f"Не удалось установить иконку для '{folder_path.name}': {e}")
-
-    def restore_file(self, src_path_str: str, dest_path_str: str) -> bool:
-        src_path = Path(src_path_str)
-        dest_path = Path(dest_path_str)
-        try:
-            dest_path.parent.mkdir(exist_ok=True, parents=True)
-            shutil.move(str(src_path), str(dest_path))
-            self.logger.info(f"Файл восстановлен: '{src_path.name}' -> '{dest_path.parent.name}'")
-            return True
-        except Exception as e:
-            self.logger.error(f"Ошибка восстановления файла '{src_path.name}': {e}")
-            return False

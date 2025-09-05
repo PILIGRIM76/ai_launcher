@@ -2,70 +2,106 @@
     "language": "ru",
     "auto_organize": true,
     "run_initial_organization": true,
-    "categories": {
-        "Программы": [
-            ".exe",
-            ".lnk",
-            ".msi",
-            ".bat"
-        ],
-        "Документы": [
-            ".doc",
-            ".docx",
-            ".pdf",
-            ".xls",
-            ".xlsx",
-            ".ppt",
-            ".pptx",
-            ".txt"
-        ],
-        "Изображения": [
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".gif",
-            ".bmp",
-            ".svg"
-        ],
-        "Медиа": [
-            ".mp3",
-            ".mp4",
-            ".avi",
-            ".mkv",
-            ".mov",
-            ".wav"
-        ],
-        "Архивы": [
-            ".zip",
-            ".rar",
-            ".7z",
-            ".tar",
-            ".gz"
-        ],
-        "Код": [
-            ".py",
-            ".js",
-            ".html",
-            ".css",
-            ".java",
-            ".cpp",
-            ".cs"
-        ],
-        "Другое": []
-    },
+    "boxes": [
+        {
+            "name": "Документы"
+        },
+        {
+            "name": "Изображения"
+        },
+        {
+            "name": "Архивы"
+        },
+        {
+            "name": "Другое"
+        }
+    ],
+    "rules": [
+        {
+            "name": "Рабочие отчеты DOCX",
+            "target_box": "Документы",
+            "conditions": [
+                {
+                    "field": "extension",
+                    "operator": "is",
+                    "value": ".docx"
+                },
+                {
+                    "field": "name",
+                    "operator": "contains",
+                    "value": "отчет"
+                },
+                {
+                    "field": "extension",
+                    "operator": "is",
+                    "value": ""
+                }
+            ],
+            "enabled": true
+        },
+        {
+            "name": "Все PDF",
+            "target_box": "Документы",
+            "conditions": [
+                {
+                    "field": "extension",
+                    "operator": "is",
+                    "value": ".pdf"
+                }
+            ],
+            "enabled": true
+        },
+        {
+            "name": "Скриншоты",
+            "target_box": "Изображения",
+            "conditions": [
+                {
+                    "field": "extension",
+                    "operator": "is",
+                    "value": ".png"
+                },
+                {
+                    "field": "name",
+                    "operator": "starts_with",
+                    "value": "screenshot"
+                }
+            ],
+            "enabled": true
+        },
+        {
+            "name": "Все JPG",
+            "target_box": "Изображения",
+            "conditions": [
+                {
+                    "field": "extension",
+                    "operator": "is",
+                    "value": ".jpg"
+                }
+            ],
+            "enabled": true
+        },
+        {
+            "name": "Архивы",
+            "target_box": "Архивы",
+            "conditions": [
+                {
+                    "field": "extension",
+                    "operator": "in",
+                    "value": ".zip,.rar,.7z"
+                }
+            ],
+            "enabled": true
+        }
+    ],
     "exceptions": [],
+    "theme": "dark",
     "sort_options": {
-        "by_date": true,
-        "by_type": true
+        "by_date": false,
+        "by_type": false
     },
     "clean_options": {
         "remove_broken_shortcuts": true,
         "remove_temp_files": true
     },
-    "security": {
-        "use_recycle_bin": true,
-        "backup_before_operations": true
-    },
-    "auto_organize_enabled": true,
-    "theme": "dark"
+    "auto_organize_enabled": true
 }

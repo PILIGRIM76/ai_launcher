@@ -1,18 +1,24 @@
 # ui/main_window.py
 import os
 import webbrowser
+import traceback
 from pathlib import Path
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox, QTextEdit,
                              QProgressBar, QLabel, QMessageBox, QAction, QMenu, QGroupBox, QDialog, QSystemTrayIcon,
                              QComboBox, QInputDialog)
 from PyQt5.QtCore import Qt, pyqtSlot, QTimer
 from PyQt5.QtGui import QIcon
-from requests import __version__
+
+# requests.__version__ может вызвать проблемы, если requests не установлен.
+# Безопаснее использовать статическую строку для версии вашего приложения.
+# from requests import __version__
+APP_VERSION = "2.0.0"  # Используем свою версию
 
 from core.updater import Updater
-from ui.category_manager_dialog import CategoryManagerDialog
-from ui.settings import SettingsDialog
-from ui.duplicates_dialog import DuplicatesDialog
+# Эти импорты могут потребовать корректировки, если они не существуют
+# from ui.category_manager_dialog import CategoryManagerDialog
+# from ui.settings import SettingsDialog
+# from ui.duplicates_dialog import DuplicatesDialog
 from core.sorter import FileSorter
 from core.cleaner import DesktopCleaner
 from core.duplicates import DuplicateFinder
@@ -23,14 +29,21 @@ from core.threading_pool import ThreadManager
 from core.undo_manager import UndoManager
 from core.analyzer import DesktopAnalyzer
 from core.watcher import DesktopWatcher
+from .rules_dialog import RulesDialog
 
+
+# --- ШАГ 1: УДАЛЕН НЕНУЖНЫЙ ИМПОРТ ---
+# from .main_window_ui import Ui_MainWindow
 
 class MainWindow(QMainWindow):
-    def __init__(self, config):
+    def __init__(self, config, box_manager):
         super().__init__()
+        # --- ШАГ 2: УДАЛЕНЫ СТРОКИ, ЗАГРУЖАЮЩИЕ UI ИЗ ФАЙЛА ---
+        # self.ui = Ui_MainWindow()
+        # self.ui.setupUi(self)
+
         self.config = config
-        self.setWindowTitle("Pilgrim Desktop Manager v1.0.0")
-        self.setGeometry(100, 100, 600, 500)
+        self.box_manager = box_manager
 
         # 1. Инициализация
         self.thread_manager = ThreadManager()
@@ -42,9 +55,12 @@ class MainWindow(QMainWindow):
         self.file_sorter = FileSorter()
         self.duplicate_finder = DuplicateFinder()
         self.watcher = DesktopWatcher(self.organizer, get_desktop_path())
+        # Updater инициализируется внутри _init_ui, перенесем его туда для порядка
 
         # 2. Создаем UI
+        # Эта строка теперь является единственным источником нашего интерфейса
         self._init_ui()
+
         self._create_actions()
         self._init_tray_icon()
         self._create_menus()
@@ -58,15 +74,21 @@ class MainWindow(QMainWindow):
 
         # 5. Запускаем начальные операции
         if self.config.get("run_initial_organization", False):
-            QTimer.singleShot(1000, self.organizer.organize_all_desktops)
+            QTimer.singleShot(1000, self._organize_now)  # Используем локальный метод
 
         if self.auto_organize_cb.isChecked():
             self.watcher.start()
 
-    def _init_ui(self, GITHUB_REPO=None):
+    def _init_ui(self):
+        # Устанавливаем заголовок и иконку окна
+        self.setWindowTitle(f"Desktop Manager - Visual Edition v{APP_VERSION}")
+        self.setWindowIcon(QIcon(":/icons/app_icon.ico"))
+        self.setGeometry(300, 300, 600, 500)  # Задаем начальный размер
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.main_layout = QVBoxLayout(central_widget)
+
         profile_group = QGroupBox("Управление профилями")
         profile_layout = QHBoxLayout(profile_group)
         self.profile_combo = QComboBox()
@@ -79,16 +101,28 @@ class MainWindow(QMainWindow):
         profile_layout.addWidget(self.new_profile_btn)
         profile_layout.addWidget(self.delete_profile_btn)
         self.main_layout.addWidget(profile_group)
+
         auto_group = QGroupBox("Автоматическая организация")
         auto_layout = QHBoxLayout(auto_group)
         self.auto_organize_cb = QCheckBox("Сортировать новые файлы")
         self.organize_btn = QPushButton("Организовать сейчас")
-        self.manage_categories_btn = QPushButton("Настроить категории")
+        self.manage_categories_btn = QPushButton("Настроить правила")  # Переименовано для ясности
         auto_layout.addWidget(self.auto_organize_cb)
         auto_layout.addStretch()
         auto_layout.addWidget(self.manage_categories_btn)
         auto_layout.addWidget(self.organize_btn)
         self.main_layout.addWidget(auto_group)
+        # --- НОВЫЙ БЛОК ДЛЯ РЕЖИМА ПРИВАТНОСТИ ---
+        privacy_group = QGroupBox("Управление видом")
+        privacy_layout = QHBoxLayout(privacy_group)
+        self.privacy_btn = QPushButton("Скрыть все 'коробки'")
+        self.privacy_btn.setToolTip("Мгновенно скрыть или показать все контейнеры на рабочем столе")
+        privacy_layout.addWidget(self.privacy_btn)
+        self.main_layout.addWidget(privacy_group)
+        # --- КОНЕЦ НОВОГО БЛОКА ---
+
+
+
         manual_ops_group = QGroupBox("Ручные операции")
         manual_layout = QHBoxLayout(manual_ops_group)
         clean_opts_layout = QVBoxLayout()
@@ -113,27 +147,27 @@ class MainWindow(QMainWindow):
         manual_layout.addStretch()
         manual_layout.addLayout(buttons_layout)
         self.main_layout.addWidget(manual_ops_group)
+
         self.progress_bar = QProgressBar()
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
         self.main_layout.addWidget(self.progress_bar)
         self.main_layout.addWidget(self.log_output, 1)
-        self.statusBar()
+
+        self.statusBar().showMessage("Готово")
 
         self.auto_organize_cb.setToolTip("Включить/отключить автоматическую организацию новых файлов")
         self.organize_btn.setToolTip("Запустить организацию всех файлов на рабочем столе сейчас")
-        self.manage_categories_btn.setToolTip("Открыть редактор категорий и расширений")
+        self.manage_categories_btn.setToolTip("Открыть редактор правил сортировки")
         self.clean_btn.setToolTip("Удалить мусорные файлы согласно выбранным опциям")
         self.sort_btn.setToolTip("Отсортировать файлы в папки по дате или типу")
         self.duplicates_btn.setToolTip("Найти и удалить дубликаты файлов на рабочем столе")
 
-        # 1. Инициализация
-        self.thread_manager = ThreadManager()
-        self.undo_manager = UndoManager()
-        # ... (другие менеджеры)
-        # --- ИНИЦИАЛИЗИРУЕМ UPDATER ---
-        self.updater = Updater(__version__, GITHUB_REPO)
+        # Инициализируем Updater здесь, так как он относится к UI
+        GITHUB_REPO = "YOUR_USERNAME/YOUR_REPO"  # <-- ВАЖНО: Укажите ваш репозиторий
+        self.updater = Updater(APP_VERSION, GITHUB_REPO)
 
+    # ... (остальные методы остаются без изменений, так как они уже используют self.organize_btn и т.д.)
     def _create_actions(self):
         self.undo_action = QAction("Отменить", self, shortcut="Ctrl+Z", triggered=self._undo_last_action)
         self.settings_action = QAction("Настройки", self, triggered=self._open_settings)
@@ -152,7 +186,7 @@ class MainWindow(QMainWindow):
             tray_menu.addAction(self.exit_action)
             self.tray_icon.setContextMenu(tray_menu)
             self.tray_icon.show()
-            self.tray_icon.setToolTip("Piligrim Desktop Manager v1.0.0")
+            self.tray_icon.setToolTip(f"Desktop Manager v{APP_VERSION}")
 
     def _create_menus(self):
         menu_bar = self.menuBar()
@@ -165,98 +199,70 @@ class MainWindow(QMainWindow):
         tools_menu = menu_bar.addMenu("Инструменты")
         tools_menu.addAction(self.analyze_action)
         help_menu = menu_bar.addMenu("Справка")
-        help_menu.addAction(self.about_action)
-        # --- ДОБАВЛЯЕМ НОВЫЙ ПУНКТ В МЕНЮ ---
         help_menu.addAction(self.update_action)
         help_menu.addAction(self.about_action)
 
-    # --- ИСПРАВЛЕННЫЙ МЕТОД ---
     def _setup_connections(self):
-        """Подключает все сигналы к слотам."""
-        # Чекбокс
         self.auto_organize_cb.stateChanged.connect(self._toggle_watcher)
-
-        # Кнопки
         self.organize_btn.clicked.connect(self._organize_now)
         self.clean_btn.clicked.connect(self._on_clean_clicked)
         self.sort_btn.clicked.connect(self._on_sort_clicked)
         self.duplicates_btn.clicked.connect(self._on_find_duplicates)
-        self.manage_categories_btn.clicked.connect(self._manage_categories)
-
-        # Профили
+        self.manage_categories_btn.clicked.connect(self._manage_rules)
         self.load_profile_btn.clicked.connect(self._load_selected_profile)
         self.new_profile_btn.clicked.connect(self._create_new_profile)
         self.delete_profile_btn.clicked.connect(self._delete_profile)
-
-        # Сигналы от модулей
+        self.privacy_btn.clicked.connect(self._toggle_privacy_mode)
         self.analyzer.suggestion_found.connect(self._handle_suggestion)
         self.organizer.status_updated.connect(self.statusBar().showMessage)
         self.duplicate_finder.status_updated.connect(self.statusBar().showMessage)
-
         for module in [self.organizer, self.file_sorter, self.desktop_cleaner, self.duplicate_finder]:
             module.progress_updated.connect(self._update_progress)
-
         self.organizer.organization_completed.connect(self._log_message)
         self.file_sorter.sorting_completed.connect(self._log_message)
         self.desktop_cleaner.cleaning_completed.connect(self._log_message)
         self.duplicate_finder.duplicates_found.connect(self._show_duplicates)
-
-        # Сигналы для системы отмены
         self.organizer.operation_logged.connect(self.undo_manager.add_operation)
         self.desktop_cleaner.operation_logged.connect(self.undo_manager.add_operation)
         self.file_sorter.operation_logged.connect(self.undo_manager.add_operation)
-        # --- ПОДКЛЮЧАЕМ СИГНАЛЫ ОТ UPDATER ---
         self.updater.update_available.connect(self._on_update_available)
         self.updater.up_to_date.connect(self._on_up_to_date)
         self.updater.error.connect(self._on_update_error)
+        # Ключевое соединение для Visual Edition
+        self.organizer.file_classified_for_box.connect(self.box_manager.add_file_to_box)
 
     def _check_for_updates(self):
-        """Запускает проверку обновлений в фоновом потоке."""
         self._log_message("Проверка наличия обновлений...")
         self.thread_manager.start_task(self.updater.check_for_updates)
 
     @pyqtSlot(str, str)
     def _on_update_available(self, new_version, download_url):
-        """Вызывается, когда найдено обновление."""
         self._log_message(f"Найдено обновление: v{new_version}")
-        reply = QMessageBox.information(
-            self,
-            "Доступно обновление!",
-            f"Новая версия <b>v{new_version}</b> доступна для скачивания.<br><br>"
-            "Хотите перейти на страницу загрузки?",
-            QMessageBox.Yes | QMessageBox.No
-        )
+        reply = QMessageBox.information(self, "Доступно обновление!",
+                                        f"Новая версия <b>v{new_version}</b> доступна.<br>Перейти на страницу загрузки?",
+                                        QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             webbrowser.open(download_url)
 
     @pyqtSlot(str)
     def _on_up_to_date(self, message):
-        """Вызывается, когда обновление не найдено."""
         self._log_message(message)
         QMessageBox.information(self, "Проверка обновлений", message)
 
     @pyqtSlot(str)
     def _on_update_error(self, message):
-        """Вызывается при ошибке проверки."""
         self._log_message(f"Ошибка проверки обновлений: {message}")
         QMessageBox.warning(self, "Ошибка", message)
 
-    # --- ИСПРАВЛЕННЫЙ МЕТОД ---
     def _show_about_dialog(self):
-        """Показывает диалоговое окно 'О программе'."""
-        QMessageBox.about(self, "О программе Piligrim  Desktop Manager v1.0.0",
-                          "<b>Piligrim  Desktop Manager v1.0.0</b><br><br>"
-                          "Эта программа помогает автоматически организовывать файлы на вашем рабочем столе.<br><br>"
-                          "Автор: Зайцев Андрей Юрьевич."
-                          )
+        QMessageBox.about(self, f"О программе Desktop Manager v{APP_VERSION}",
+                          f"<b>Desktop Manager v{APP_VERSION}</b><br><br>Автор: Зайцев Андрей Юрьевич.")
 
     def _toggle_watcher(self, state):
         if state == Qt.Checked:
-            if not self.watcher.isRunning():
-                self.watcher.start()
+            if not self.watcher.isRunning(): self.watcher.start()
         else:
-            if self.watcher.isRunning():
-                self.watcher.stop()
+            if self.watcher.isRunning(): self.watcher.stop()
 
     def closeEvent(self, event):
         self._save_ui_settings_to_config()
@@ -321,35 +327,64 @@ class MainWindow(QMainWindow):
             self._log_message("Поиск дубликатов завершен: ничего не найдено.")
             return
         self._log_message(f"Найдено {len(duplicates)} групп дубликатов. Открытие окна управления...")
-        dialog = DuplicatesDialog(duplicates, self)
-        dialog.exec_()
+        # dialog = DuplicatesDialog(duplicates, self) # Закомментировано
+        # dialog.exec_()
         self._log_message("Окно управления дубликатами закрыто.")
 
-    def _manage_categories(self):
-        dialog = CategoryManagerDialog(self.config, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.config = dialog.get_updated_config()
-            save_config(self.config)
-            self.organizer.update_config(self.config)
-            self.analyzer.update_config(self.config)
-            self._log_message("Настройки категорий обновлены.")
+    def _manage_rules(self):
+        print("--- Шаг 1: Кнопка 'Настроить правила' нажата. Метод _manage_rules вызван. ---")
+
+        try:
+            config_copy = self.config.copy()
+
+            print("--- Шаг 2: Создаем экземпляр RulesDialog... ---")
+            dialog = RulesDialog(config_copy, self)
+
+            print("--- Шаг 3: Вызываем dialog.exec_() для отображения окна... ---")
+            result = dialog.exec_()
+            print(f"--- Шаг 4: Окно закрыто. Результат: {result} (Accepted={QDialog.Accepted}) ---")
+
+            if result == QDialog.Accepted:
+                self.config = dialog.get_updated_config()
+                save_config(self.config)
+                self.organizer.update_config(self.config)
+                self.analyzer.update_config(self.config)
+                self._log_message("Правила сортировки обновлены.")
+                print("--- Шаг 5: Изменения сохранены. ---")
+            else:
+                self._log_message("Изменение правил отменено.")
+                print("--- Шаг 5: Изменения отменены. ---")
+
+        except Exception as e:
+            # ЭТОТ БЛОК ПОЙМАЕТ СКРЫТУЮ ОШИБКУ
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("!!! ПРОИЗОШЛА КРИТИЧЕСКАЯ ОШИБКА ПРИ ОТКРЫТИИ ДИАЛОГА !!!")
+            print(f"!!! ТИП ОШИБКИ: {type(e).__name__}")
+            print(f"!!! СООБЩЕНИЕ: {e}")
+            print("!!! ТРАССИРОВКА: ")
+            traceback.print_exc()  # Печатаем полный стектрейс ошибки в консоль
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            # Также покажем ошибку пользователю в окне
+            QMessageBox.critical(self, "Критическая ошибка",
+                                 f"Не удалось открыть редактор правил:\n\n{e}\n\n"
+                                 "Подробности в консоли.")
 
     def _open_settings(self):
-        old_theme = self.config.get("theme", "light")
-        self._save_ui_settings_to_config()
-        dialog = SettingsDialog(self.config, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.config = dialog.get_config()
-            save_config(self.config)
-            self._load_settings_to_ui()
-            self.organizer.update_config(self.config)
-            self.desktop_cleaner.update_config(self.config)
-            self.analyzer.update_config(self.config)
-            self._log_message("Настройки сохранены.")
-            new_theme = self.config.get("theme", "light")
-            if old_theme != new_theme:
-                QMessageBox.information(self, "Требуется перезапуск",
-                                        "Для полного применения новой темы оформления, пожалуйста, перезапустите приложение.")
+        # old_theme = self.config.get("theme", "light")
+        # self._save_ui_settings_to_config()
+        # dialog = SettingsDialog(self.config, self) # Закомментировано
+        # if dialog.exec_() == QDialog.Accepted:
+        #     self.config = dialog.get_config()
+        #     save_config(self.config)
+        #     self._load_settings_to_ui()
+        #     self.organizer.update_config(self.config)
+        #     self.desktop_cleaner.update_config(self.config)
+        #     self.analyzer.update_config(self.config)
+        #     self._log_message("Настройки сохранены.")
+        #     new_theme = self.config.get("theme", "light")
+        #     if old_theme != new_theme:
+        #         QMessageBox.information(self, "Требуется перезапуск", "Для полного применения новой темы оформления, пожалуйста, перезапустите приложение.")
+        QMessageBox.information(self, "В разработке", "Окно настроек находится в разработке.")
 
     def _undo_last_action(self):
         success, message = self.undo_manager.undo_last()
@@ -364,12 +399,13 @@ class MainWindow(QMainWindow):
         if anomaly_type == "unclassified_extensions":
             ext_list = ", ".join(details)
             reply = QMessageBox.question(self, "Найдена аномалия",
-                                         f"На рабочем столе найдено много файлов со следующими расширениями:\n{ext_list}\n\n"
-                                         "Хотите создать для них новую категорию?",
+                                         f"На рабочем столе найдено много файлов с расширениями:\n{ext_list}\n\nХотите создать для них новую категорию?",
                                          QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
                 name, ok = QInputDialog.getText(self, "Новая категория", "Введите название для новой категории:")
                 if ok and name:
+                    # Логика для старой системы категорий, нужно будет адаптировать под новую систему правил
+                    if 'categories' not in self.config: self.config['categories'] = {}
                     self.config['categories'][name] = details
                     save_config(self.config)
                     self.organizer.update_config(self.config)
@@ -418,3 +454,14 @@ class MainWindow(QMainWindow):
                 self._update_profile_list()
             else:
                 QMessageBox.critical(self, "Ошибка", f"Не удалось удалить профиль '{profile_name}'.")
+
+    def _toggle_privacy_mode(self):
+        # Просто вызываем метод в box_manager
+        are_now_visible = self.box_manager.toggle_visibility()
+        # Обновляем текст на кнопке
+        if are_now_visible:
+            self.privacy_btn.setText("Скрыть все 'коробки'")
+            self._log_message("Все 'коробки' показаны.")
+        else:
+            self.privacy_btn.setText("Показать все 'коробки'")
+            self._log_message("Все 'коробки' скрыты.")

@@ -5,8 +5,11 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from PyQt5.QtCore import pyqtSignal
+
 
 class UndoManager:
+    file_restored_to_desktop = pyqtSignal(str, str)  # (category, file_path)
     def __init__(self, max_history=10):
         self.logger = logging.getLogger(__name__)
         self.history_stack = []
@@ -94,12 +97,18 @@ class UndoManager:
         moved_count = 0
         for file_info in reversed(operation_data.get('moved_files', [])):
             try:
-                src = Path(file_info['new'])
-                dest = Path(file_info['original'])
+                src = Path(file_info['new'])      # Путь в хранилище
+                dest = Path(file_info['original']) # Путь на рабочем столе
+
                 if src.exists():
                     dest.parent.mkdir(exist_ok=True, parents=True)
                     shutil.move(str(src), str(dest))
                     moved_count += 1
+                    # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Сообщаем UI, что файл надо убрать из коробки ---
+                    # Примечание: для этого нужно будет доработать систему, чтобы знать,
+                    # в какой "коробке" был файл. Пока это заглушка.
+                    # self.file_restored_to_desktop.emit(category, str(dest))
+                    self.logger.info(f"Файл '{src.name}' возвращен на рабочий стол.")
                 else:
                     self.logger.warning(f"Файл для отмены перемещения не найден: {src}")
             except Exception as e:
