@@ -1,0 +1,71 @@
+{
+    "language": "ru",
+    "auto_organize": true,
+    "run_initial_organization": true,
+    "categories": {
+        "Программы": [
+            ".exe",
+            ".lnk",
+            ".msi",
+            ".bat"
+        ],
+        "Документы": [
+            ".doc",
+            ".docx",
+            ".pdf",
+            ".xls",
+            ".xlsx",
+            ".ppt",
+            ".pptx",
+            ".txt"
+        ],
+        "Изображения": [
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".bmp",
+            ".svg"
+        ],
+        "Медиа": [
+            ".mp3",
+            ".mp4",
+            ".avi",
+            ".mkv",
+            ".mov",
+            ".wav"
+        ],
+        "Архивы": [
+            ".zip",
+            ".rar",
+            ".7z",
+            ".tar",
+            ".gz"
+        ],
+        "Код": [
+            ".py",
+            ".js",
+            ".html",
+            ".css",
+            ".java",
+            ".cpp",
+            ".cs"
+        ],
+        "Другое": []
+    },
+    "exceptions": [],
+    "sort_options": {
+        "by_date": true,
+        "by_type": true
+    },
+    "clean_options": {
+        "remove_broken_shortcuts": true,
+        "remove_temp_files": true
+    },
+    "security": {
+        "use_recycle_bin": true,
+        "backup_before_operations": true
+    },
+    "auto_organize_enabled": true,
+    "theme": "dark"
+}
