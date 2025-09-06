@@ -103,5 +103,9 @@
         "remove_broken_shortcuts": true,
         "remove_temp_files": true
     },
-    "auto_organize_enabled": true
+    "auto_organize_enabled": true,
+    "security": {
+        "use_recycle_bin": true,
+        "backup_before_operations": true
+    }
 }

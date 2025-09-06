@@ -1,28 +1,22 @@
-# Игнорируем папки с кэшем Python
+# Python
 __pycache__/
 *.pyc
 
-# Игнорируем папку виртуального окружения
-# Это САМОЕ ВАЖНОЕ правило. Никогда не загружайте venv на GitHub!
+# Virtual Environment
 venv/
 .venv/
 
-# Игнорируем файлы IDE (PyCharm, VSCode)
+# IDE settings
 .idea/
-.vscode/
 
-# Игнорируем файлы, которые генерирует PyInstaller при сборке .exe
-build/
-dist/
-*.spec
-
-# Игнорируем файлы, которые генерирует само приложение во время работы
+# Logs and data
 logs/
-*.log
+*.txt
+!requirements.txt
+
+# Local files
 recycle_bin/
 undo_history/
 profiles/
-
-# Игнорируем скомпилированный файл ресурсов.
-# В репозитории должен быть только исходник (resources.qrc).
+config.json
 resources_rc.py

@@ -5,18 +5,30 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QStyleFactory
 from PyQt5.QtCore import Qt
 
-# ... (блок для исправления пути PyInstaller остается без изменений) ...
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
 
 from ui.main_window import MainWindow
 from core.utils import setup_logging, load_config
-# --- НОВЫЙ ИМПОРТ ---
 from core.box_manager import BoxManager
+# --- ИЗМЕНЕНИЕ: Импортируем темы ---
+from ui.themes import DARK_THEME_QSS, LIGHT_THEME_QSS
 
+__version__ = "1.0.1"
 try:
     import resources_rc
 except ImportError:
     print("Внимание: файл ресурсов 'resources_rc.py' не найден.")
     pass
+
+
+# --- ИЗМЕНЕНИЕ: Новая функция для применения темы ---
+def apply_theme(app, theme_name):
+    if theme_name == 'dark':
+        app.setStyleSheet(DARK_THEME_QSS)
+    else:
+        app.setStyleSheet(LIGHT_THEME_QSS)
+
 
 def main():
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
@@ -27,27 +39,17 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle(QStyleFactory.create('Fusion'))
+    app.setWindowIcon(QIcon(":/icons/app_icon.png"))
 
-    theme = config.get("theme", "light")
-    qss_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "styles", f"{theme}.qss")
-    if os.path.exists(qss_file):
-        with open(qss_file, "r", encoding="utf-8") as f:
-            app.setStyleSheet(f.read())
+    # --- ИЗМЕНЕНИЕ: Применяем тему при запуске ---
+    apply_theme(app, config.get("theme", "light"))
 
-    app.setWindowIcon(QIcon(":/icons/app_icon.ico"))
-
-    # --- ИНТЕГРАЦИЯ СИСТЕМЫ "КОРОБОК" ---
-    # 1. Создаем менеджер "коробок"
     box_manager = BoxManager(config)
-
-    # 2. Создаем главное окно и передаем в него менеджер
     window = MainWindow(config, box_manager)
+
     window.show()
-
-    # 3. Создаем все "коробки" после того, как основное приложение готово
-    box_manager.create_all_boxes()
-
     sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()

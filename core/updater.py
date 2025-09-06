@@ -1,52 +1,47 @@
 # core/updater.py
-import logging
 import requests
+import logging
+from packaging import version
 from PyQt5.QtCore import QObject, pyqtSignal
+
+# --- ИЗМЕНЕНИЕ: Указываем правильный URL на ваш репозиторий ---
+VERSION_URL = "https://raw.githubusercontent.com/PILIGRIM76/ai_launcher/master/version.json"
 
 
 class Updater(QObject):
-    # Сигналы для отправки результатов в основной поток GUI
-    # (новая_версия, ссылка_на_скачивание)
-    update_available = pyqtSignal(str, str)
-    up_to_date = pyqtSignal(str)
-    error = pyqtSignal(str)
+    update_available = pyqtSignal(str, str)  # (новая версия, ссылка на скачивание)
 
-    def __init__(self, current_version, github_repo):
+    def __init__(self, current_version):
         super().__init__()
-        self.logger = logging.getLogger(__name__)
         self.current_version = current_version
-        # Формируем URL для API GitHub
-        self.api_url = f"https://api.github.com/repos/{github_repo}/releases/latest"
+        self.logger = logging.getLogger(__name__)
 
     def check_for_updates(self):
-        """
-        Выполняет проверку обновлений. Этот метод предназначен для запуска в отдельном потоке.
-        """
-        self.logger.info(f"Проверка обновлений по адресу: {self.api_url}")
+        self.logger.info(f"Проверка обновлений... Текущая версия: {self.current_version}")
         try:
-            response = requests.get(self.api_url, timeout=10)
-            # Проверяем, что запрос успешен (код 200)
+            # Добавляем headers, чтобы избежать кэширования
+            headers = {'Cache-Control': 'no-cache'}
+            response = requests.get(VERSION_URL, timeout=5, headers=headers)
             response.raise_for_status()
 
             data = response.json()
-            latest_version = data['tag_name'].lstrip('v')  # Убираем 'v' из 'v1.1.0'
-            download_url = data['html_url']
+            latest_ver_str = data.get("latest_version")
+            download_url = data.get("download_url")
 
-            self.logger.info(f"Текущая версия: {self.current_version}, Последняя версия на GitHub: {latest_version}")
+            if not latest_ver_str or not download_url:
+                self.logger.warning("В файле версии отсутствуют необходимые поля.")
+                return
 
-            # Сравниваем версии. Для простоты сравниваем как строки.
-            # Для сложных версий (1.10.0 vs 1.9.0) лучше использовать библиотеку 'semver'.
-            if latest_version > self.current_version:
-                self.update_available.emit(latest_version, download_url)
+            latest_ver = version.parse(latest_ver_str)
+            current_ver = version.parse(self.current_version)
+
+            if latest_ver > current_ver:
+                self.logger.info(f"Доступна новая версия: {latest_ver_str}")
+                self.update_available.emit(latest_ver_str, download_url)
             else:
-                self.up_to_date.emit("У вас установлена последняя версия.")
+                self.logger.info("У вас установлена последняя версия.")
 
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Ошибка сети при проверке обновлений: {e}")
-            self.error.emit("Ошибка сети. Не удалось проверить обновления.")
-        except KeyError:
-            self.logger.error("Ошибка парсинга ответа от GitHub. Возможно, нет релизов.")
-            self.error.emit("Не удалось получить информацию о версии с GitHub.")
+            self.logger.warning(f"Не удалось проверить обновления: {e}")
         except Exception as e:
-            self.logger.error(f"Неизвестная ошибка при проверке обновлений: {e}")
-            self.error.emit("Произошла неизвестная ошибка.")
+            self.logger.error(f"Произошла ошибка при проверке обновлений: {e}")

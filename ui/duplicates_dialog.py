@@ -1,111 +1,92 @@
 # ui/duplicates_dialog.py
 import os
-import logging
-from PyQt5.QtCore import Qt
+from pathlib import Path
+from send2trash import send2trash
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QMessageBox, QLabel
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox,
+    QTreeWidget, QTreeWidgetItem, QLabel, QHeaderView, QTreeWidgetItemIterator
 )
+from PyQt5.QtCore import Qt
+
 
 
 class DuplicatesDialog(QDialog):
-    def __init__(self, duplicates_dict, parent=None):
+    def __init__(self, duplicates_data: dict, parent=None):
         super().__init__(parent)
-        self.duplicates = duplicates_dict
-        self.logger = logging.getLogger(__name__)
+        self.duplicates_data = duplicates_data
         self.setWindowTitle("Найденные дубликаты файлов")
-        self.setGeometry(150, 150, 800, 600)
+        self.setGeometry(150, 150, 700, 500)
         self._init_ui()
         self._populate_tree()
 
     def _init_ui(self):
-        """Создает элементы интерфейса окна."""
-        main_layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self)
 
-        # Информационная метка
         info_label = QLabel(
-            "Ниже представлены группы одинаковых файлов. "
-            "Оставьте хотя бы один файл в каждой группе.\n"
-            "Отметьте галочками файлы, которые хотите удалить."
+            "Ниже представлены группы дубликатов. В каждой группе оставьте хотя бы один файл.\n"
+            "Отметьте файлы, которые вы хотите удалить."
         )
-        main_layout.addWidget(info_label)
+        layout.addWidget(info_label)
 
-        # Дерево для отображения дубликатов
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Имя файла", "Путь к файлу"])
-        self.tree.setColumnWidth(0, 250)  # Устанавливаем ширину колонок
-        main_layout.addWidget(self.tree)
+        self.tree.setHeaderLabels(["Файл", "Путь"])
+        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        layout.addWidget(self.tree)
 
-        # Кнопки управления
         button_layout = QHBoxLayout()
-        button_layout.addStretch()  # Пустое пространство, чтобы кнопки были справа
-        self.delete_btn = QPushButton("Удалить выбранные")
-        self.close_btn = QPushButton("Закрыть")
-        button_layout.addWidget(self.delete_btn)
-        button_layout.addWidget(self.close_btn)
-        main_layout.addLayout(button_layout)
+        self.delete_button = QPushButton("Переместить в корзину")
+        self.close_button = QPushButton("Закрыть")
+        button_layout.addStretch()
+        button_layout.addWidget(self.delete_button)
+        button_layout.addWidget(self.close_button)
+        layout.addLayout(button_layout)
 
-        # Подключение сигналов к методам
-        self.delete_btn.clicked.connect(self._delete_selected_files)
-        self.close_btn.clicked.connect(self.accept)
+        self.delete_button.clicked.connect(self._delete_selected)
+        self.close_button.clicked.connect(self.accept)
 
     def _populate_tree(self):
         """Заполняет дерево данными о дубликатах."""
-        self.tree.clear()
+        for i, (file_hash, files) in enumerate(self.duplicates_data.items()):
+            # Родительский элемент для группы
+            group_item = QTreeWidgetItem(self.tree, [f"Группа {i + 1} ({len(files)} файла)"])
+            group_item.setFlags(group_item.flags() & ~Qt.ItemIsSelectable)  # Нельзя выбрать саму группу
 
-        for group_index, (hash_val, files) in enumerate(self.duplicates.items()):
-            # Создаем корневой элемент для группы дубликатов
-            group_item = QTreeWidgetItem(self.tree)
-            group_item.setText(0, f"Группа {group_index + 1} ({len(files)} файла)")
-            group_item.setFlags(group_item.flags() & ~Qt.ItemIsUserCheckable)  # Группу нельзя выбрать
-
-            # Добавляем файлы как дочерние элементы
-            for i, filepath in enumerate(files):
-                file_item = QTreeWidgetItem(group_item)
-                file_item.setText(0, os.path.basename(filepath))
-                file_item.setText(1, os.path.dirname(filepath))
-
-                # Сохраняем полный путь к файлу внутри элемента. Это надежнее, чем брать его из текста.
-                file_item.setData(0, Qt.UserRole, filepath)
-
-                # Делаем элемент "выбираемым" с помощью чекбокса
+            # Дочерние элементы - файлы
+            for filepath_str in files:
+                filepath = Path(filepath_str)
+                file_item = QTreeWidgetItem(group_item, [filepath.name, str(filepath.parent)])
                 file_item.setFlags(file_item.flags() | Qt.ItemIsUserCheckable)
-
-                # Важная мера предосторожности:
-                # Первый файл в группе по умолчанию не выбран и не может быть удален,
-                # чтобы пользователь случайно не удалил все копии файла.
-                if i == 0:
+                # Первый файл в группе оставляем неотмеченным по умолчанию
+                if files.index(filepath_str) == 0:
                     file_item.setCheckState(0, Qt.Unchecked)
                 else:
-                    file_item.setCheckState(0, Qt.Checked)  # Остальные предлагаем к удалению
+                    file_item.setCheckState(0, Qt.Checked)  # Остальные отмечаем для удаления
 
-    def _delete_selected_files(self):
-        """Собирает все отмеченные файлы и удаляет их после подтверждения."""
+                file_item.setData(0, Qt.UserRole, filepath_str)  # Сохраняем полный путь
+
+        self.tree.expandAll()
+
+    def _delete_selected(self):
+        """Собирает отмеченные файлы и предлагает их удалить."""
         files_to_delete = []
-        root = self.tree.invisibleRootItem()
-
-        # Проходим по всем группам в дереве
-        for i in range(root.childCount()):
-            group_item = root.child(i)
-            # Проходим по всем файлам в группе
-            for j in range(group_item.childCount()):
-                file_item = group_item.child(j)
-                # Если файл отмечен галочкой
-                if file_item.checkState(0) == Qt.Checked:
-                    # Получаем сохраненный ранее путь к файлу
-                    filepath = file_item.data(0, Qt.UserRole)
-                    files_to_delete.append(filepath)
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value():
+            item = iterator.value()
+            if item.checkState(0) == Qt.Checked:
+                full_path = item.data(0, Qt.UserRole)
+                if full_path:
+                    files_to_delete.append(full_path)
+            iterator += 1
 
         if not files_to_delete:
             QMessageBox.warning(self, "Ничего не выбрано", "Пожалуйста, отметьте файлы для удаления.")
             return
 
-        # Запрашиваем подтверждение у пользователя
         reply = QMessageBox.question(
             self,
-            "Подтверждение удаления",
-            f"Вы уверены, что хотите навсегда удалить {len(files_to_delete)} файлов?\n"
-            "Эта операция необратима.",
+            "Подтверждение",
+            f"Вы уверены, что хотите переместить {len(files_to_delete)} файлов в Корзину?",
             QMessageBox.Yes | QMessageBox.No
         )
 
@@ -114,20 +95,14 @@ class DuplicatesDialog(QDialog):
             errors = []
             for f in files_to_delete:
                 try:
-                    os.remove(f)
+                    send2trash(f)
                     deleted_count += 1
-                    self.logger.info(f"Дубликат удален: {f}")
-                except Exception as e:
-                    errors.append(os.path.basename(f))
-                    self.logger.error(f"Не удалось удалить дубликат {f}: {e}")
+                except Exception as e:  # send2trash может вызвать разные ошибки
+                    errors.append(f"{Path(f).name}: {e}")
 
-            # Показываем финальный отчет
-            if not errors:
-                QMessageBox.information(self, "Успех", f"Успешно удалено {deleted_count} файлов.")
-            else:
-                QMessageBox.warning(self, "Завершено с ошибками",
-                                    f"Удалено: {deleted_count} файлов.\n"
-                                    f"Не удалось удалить: {', '.join(errors)}")
+            summary_message = f"Перемещено в корзину {deleted_count} из {len(files_to_delete)} файлов."
+            if errors:
+                summary_message += "\n\nПроизошли следующие ошибки:\n" + "\n".join(errors)
 
-            # Закрываем диалог после удаления
+            QMessageBox.information(self, "Результат", summary_message)
             self.accept()
