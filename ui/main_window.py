@@ -1,8 +1,8 @@
 # ui/main_window.py:
 import os
 import traceback
-import webbrowser
 from pathlib import Path
+import webbrowser
 
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QCheckBox,
@@ -11,29 +11,29 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSlot, QTimer
 from PyQt5.QtGui import QIcon
-from requests import __version__
 
-from core.updater import Updater
 from ui.category_manager_dialog import CategoryManagerDialog
 from ui.settings import SettingsDialog
 from ui.duplicates_dialog import DuplicatesDialog
+from ui.rules_dialog import RulesDialog
 
 from core.sorter import FileSorter
 from core.cleaner import DesktopCleaner
 from core.duplicates import DuplicateFinder
 from core.organizer import DesktopOrganizer
 from core.profile_manager import ProfileManager
-from core.utils import save_config, get_desktop_path
+from core.utils import save_config, get_all_desktop_paths
 from core.threading_pool import ThreadManager
 from core.undo_manager import UndoManager
+from core.updater import Updater
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, config, box_manager):
+    def __init__(self, config, box_manager, current_version):
         super().__init__()
         self.config = config
         self.box_manager = box_manager
-        self.setWindowTitle("Desktop Manager")
+        self.setWindowTitle(f"Desktop Manager (v{current_version})")
         self.setGeometry(100, 100, 600, 500)
 
         self.thread_manager = ThreadManager()
@@ -51,12 +51,9 @@ class MainWindow(QMainWindow):
         self._load_settings_to_ui()
         self._update_profile_list()
 
-        self.updater = Updater(__version__)
+        self.updater = Updater(current_version)
         self.updater.update_available.connect(self._show_update_dialog)
         QTimer.singleShot(3000, lambda: self.thread_manager.start_task(self.updater.check_for_updates))
-
-        if self.config.get("run_initial_organization", False):
-            QTimer.singleShot(1000, self.organizer.organize_all_desktops)
 
     def _init_ui(self):
         central_widget = QWidget()
@@ -81,8 +78,10 @@ class MainWindow(QMainWindow):
         self.auto_organize_cb = QCheckBox("Сортировать новые файлы")
         self.organize_btn = QPushButton("Организовать сейчас")
         self.manage_categories_btn = QPushButton("Настроить категории")
+        self.manage_rules_btn = QPushButton("Продвинутые правила")
         auto_layout.addWidget(self.auto_organize_cb)
         auto_layout.addStretch()
+        auto_layout.addWidget(self.manage_rules_btn)
         auto_layout.addWidget(self.manage_categories_btn)
         auto_layout.addWidget(self.organize_btn)
         self.main_layout.addWidget(auto_group)
@@ -140,9 +139,7 @@ class MainWindow(QMainWindow):
             self.tray_icon.show()
             self.tray_icon.setToolTip("Desktop Manager")
 
-    # --- НОВЫЙ МЕТОД для показа уведомлений ---
     def _show_notification(self, title, message):
-        """Показывает системное уведомление через иконку в трее."""
         if hasattr(self, 'tray_icon') and self.tray_icon.isVisible():
             self.tray_icon.showMessage(title, message, QSystemTrayIcon.Information, 3000)
 
@@ -168,6 +165,7 @@ class MainWindow(QMainWindow):
         self.duplicates_btn.clicked.connect(self._on_find_duplicates)
         self.manage_categories_btn.clicked.connect(self._manage_categories)
         self.undo_btn.clicked.connect(self._undo_last_action)
+        self.manage_rules_btn.clicked.connect(self._manage_rules)
 
         self.load_profile_btn.clicked.connect(self._load_selected_profile)
         self.new_profile_btn.clicked.connect(self._create_new_profile)
@@ -176,7 +174,6 @@ class MainWindow(QMainWindow):
         for module in [self.organizer, self.file_sorter, self.desktop_cleaner, self.duplicate_finder]:
             module.progress_updated.connect(self._update_progress)
 
-        # --- ИЗМЕНЕНИЕ: Подключаем слоты, которые будут вызывать уведомления ---
         self.organizer.organization_completed.connect(self._on_operation_completed)
         self.file_sorter.sorting_completed.connect(self._on_operation_completed)
         self.desktop_cleaner.cleaning_completed.connect(self._on_operation_completed)
@@ -187,7 +184,6 @@ class MainWindow(QMainWindow):
         self.file_sorter.operation_logged.connect(self.undo_manager.add_operation)
 
     def _load_settings_to_ui(self):
-        # ... (код без изменений)
         sort_options = self.config.get("sort_options", {})
         self.sort_date_cb.setChecked(sort_options.get("by_date", False))
         self.sort_type_cb.setChecked(sort_options.get("by_type", False))
@@ -197,7 +193,6 @@ class MainWindow(QMainWindow):
         self.auto_organize_cb.setChecked(self.config.get("auto_organize_enabled", True))
 
     def _save_ui_settings_to_config(self):
-        # ... (код без изменений)
         self.config["sort_options"] = {"by_date": self.sort_date_cb.isChecked(),
                                        "by_type": self.sort_type_cb.isChecked()}
         self.config["clean_options"] = {"remove_broken_shortcuts": self.clean_shortcuts_cb.isChecked(),
@@ -214,29 +209,36 @@ class MainWindow(QMainWindow):
         self.log_output.append(message)
         self.statusBar().showMessage(message, 5000)
 
-    # --- НОВЫЙ СЛОТ для обработки завершения операций ---
     @pyqtSlot(str)
     def _on_operation_completed(self, message):
-        """Обрабатывает завершение операции, логирует и показывает уведомление."""
         self._log_message(message)
         if "Ошибка" not in message:
             self._show_notification("Операция завершена", message)
+
+    # --- ИЗМЕНЕНИЕ: Восстановленные методы ---
+    def _get_primary_desktop(self):
+        """Возвращает путь к основному рабочему столу пользователя."""
+        paths = get_all_desktop_paths()
+        if not paths:
+            QMessageBox.critical(self, "Ошибка", "Не удалось определить путь к рабочему столу.")
+            return None
+        return paths[0]
 
     def _organize_now(self):
         self._log_message("Запуск организации рабочего стола...")
         self.thread_manager.start_task(self.organizer.organize_all_desktops)
 
     def _on_clean_clicked(self):
-        # ... (код без изменений)
-        desktop = get_desktop_path()
+        desktop = self._get_primary_desktop()
+        if not desktop: return
         options = {"remove_broken_shortcuts": self.clean_shortcuts_cb.isChecked(),
                    "remove_temp_files": self.clean_temp_cb.isChecked()}
         self._log_message(f"Запуск очистки для '{desktop}'...")
         self.thread_manager.start_task(self.desktop_cleaner.clean_desktop, desktop, options)
 
     def _on_sort_clicked(self):
-        # ... (код без изменений)
-        desktop = get_desktop_path()
+        desktop = self._get_primary_desktop()
+        if not desktop: return
         criteria = {"by_date": self.sort_date_cb.isChecked(), "by_type": self.sort_type_cb.isChecked()}
         if not any(criteria.values()):
             QMessageBox.warning(self, "Нет критерия", "Выберите хотя бы один критерий для сортировки.")
@@ -245,14 +247,15 @@ class MainWindow(QMainWindow):
         self.thread_manager.start_task(self.file_sorter.sort_desktop, desktop, criteria)
 
     def _on_find_duplicates(self):
-        # ... (код без изменений)
-        desktop = get_desktop_path()
+        desktop = self._get_primary_desktop()
+        if not desktop: return
         self._log_message(f"Поиск дубликатов в '{desktop}'...")
         self.thread_manager.start_task(self.duplicate_finder.find_duplicates, desktop)
 
+    # --- Конец восстановленных методов ---
+
     @pyqtSlot(dict)
     def _show_duplicates(self, duplicates):
-        # ... (код без изменений)
         if not duplicates:
             self._log_message("Дубликаты файлов не найдены.")
             QMessageBox.information(self, "Результат", "Дубликаты не найдены.")
@@ -263,13 +266,34 @@ class MainWindow(QMainWindow):
         self._log_message("Окно управления дубликатами закрыто.")
 
     def _manage_categories(self):
-        # ... (код без изменений)
         dialog = CategoryManagerDialog(self.config, self)
         if dialog.exec_() == QDialog.Accepted:
             self.config = dialog.get_updated_config()
             save_config(self.config)
             self.organizer.classifier.categories = self.config.get('categories', {})
             self._log_message("Настройки категорий обновлены.")
+
+    def _manage_rules(self):
+        self._log_message("Открыт редактор продвинутых правил.")
+        dialog = RulesDialog(self.config, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.config = dialog.config
+            save_config(self.config)
+            self.organizer.classifier.advanced_rules = self.config.get('advanced_rules', [])
+            self._log_message("Продвинутые правила обновлены.")
+        else:
+            self._log_message("Изменение продвинутых правил отменено.")
+
+    def _open_settings(self):
+        self._save_ui_settings_to_config()
+        dialog = SettingsDialog(self.config, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.config = dialog.get_config()
+            save_config(self.config)
+            self._load_settings_to_ui()
+            self._log_message("Настройки сохранены.")
+            from main import apply_theme
+            apply_theme(QApplication.instance(), self.config.get("theme"))
 
     @pyqtSlot(str, str)
     def _show_update_dialog(self, new_version, download_url):
@@ -288,19 +312,6 @@ class MainWindow(QMainWindow):
         if msg_box.exec_() == QMessageBox.Yes:
             webbrowser.open(download_url)
 
-    def _open_settings(self):
-        self._save_ui_settings_to_config()
-        dialog = SettingsDialog(self.config, self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.config = dialog.get_config()
-            save_config(self.config)
-            self._load_settings_to_ui()
-            self._log_message("Настройки сохранены.")
-
-            # --- ИЗМЕНЕНИЕ: Применяем тему "на лету" ---
-            from main import apply_theme  # Импортируем функцию
-            apply_theme(QApplication.instance(), self.config.get("theme"))
-
     def _undo_last_action(self):
         success, message = self.undo_manager.undo_last()
         self._log_message(message)
@@ -308,14 +319,12 @@ class MainWindow(QMainWindow):
             self._show_notification("Действие отменено", message)
 
     def _update_profile_list(self):
-        # ... (код без изменений)
         self.profile_combo.clear()
         profiles = self.profile_manager.list_profiles()
         if profiles:
             self.profile_combo.addItems(profiles)
 
     def _load_selected_profile(self):
-        # ... (код без изменений)
         profile_name = self.profile_combo.currentText()
         if not profile_name: return
         profile_data = self.profile_manager.load_profile(profile_name)
@@ -327,7 +336,6 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить профиль '{profile_name}'.")
 
     def _create_new_profile(self):
-        # ... (код без изменений)
         name, ok = QInputDialog.getText(self, "Новый профиль", "Введите имя профиля:")
         if ok and name:
             self._save_ui_settings_to_config()
@@ -342,7 +350,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить профиль '{name}'.")
 
     def _delete_profile(self):
-        # ... (код без изменений)
         profile_name = self.profile_combo.currentText()
         if not profile_name: return
         reply = QMessageBox.question(self, "Подтверждение", f"Удалить профиль '{profile_name}'?",
@@ -355,6 +362,5 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Ошибка", f"Не удалось удалить профиль '{profile_name}'.")
 
     def closeEvent(self, event):
-        # ... (код без изменений)
         self._save_ui_settings_to_config()
         super().closeEvent(event)

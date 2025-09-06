@@ -2,110 +2,39 @@
     "language": "ru",
     "auto_organize": true,
     "run_initial_organization": true,
-    "boxes": [
+    "theme": "light",
+    "advanced_rules": [
         {
-            "name": "Документы"
-        },
-        {
-            "name": "Изображения"
-        },
-        {
-            "name": "Архивы"
-        },
-        {
-            "name": "Другое"
-        }
-    ],
-    "rules": [
-        {
-            "name": "Рабочие отчеты DOCX",
-            "target_box": "Документы",
+            "name": "Пример правила (отключено)",
+            "enabled": false,
             "conditions": [
                 {
-                    "field": "extension",
-                    "operator": "is",
-                    "value": ".docx"
+                    "type": "name_contains",
+                    "value": "счет"
                 },
                 {
-                    "field": "name",
-                    "operator": "contains",
-                    "value": "отчет"
-                },
-                {
-                    "field": "extension",
-                    "operator": "is",
-                    "value": ""
-                }
-            ],
-            "enabled": true
-        },
-        {
-            "name": "Все PDF",
-            "target_box": "Документы",
-            "conditions": [
-                {
-                    "field": "extension",
-                    "operator": "is",
+                    "type": "extension_is",
                     "value": ".pdf"
                 }
             ],
-            "enabled": true
-        },
-        {
-            "name": "Скриншоты",
-            "target_box": "Изображения",
-            "conditions": [
-                {
-                    "field": "extension",
-                    "operator": "is",
-                    "value": ".png"
-                },
-                {
-                    "field": "name",
-                    "operator": "starts_with",
-                    "value": "screenshot"
-                }
-            ],
-            "enabled": true
-        },
-        {
-            "name": "Все JPG",
-            "target_box": "Изображения",
-            "conditions": [
-                {
-                    "field": "extension",
-                    "operator": "is",
-                    "value": ".jpg"
-                }
-            ],
-            "enabled": true
-        },
-        {
-            "name": "Архивы",
-            "target_box": "Архивы",
-            "conditions": [
-                {
-                    "field": "extension",
-                    "operator": "in",
-                    "value": ".zip,.rar,.7z"
-                }
-            ],
-            "enabled": true
+            "action": {
+                "type": "move_to",
+                "path": "C:/Users/zaytc/Documents/Счета"
+            }
         }
     ],
+    "categories": {
+        "Программы": [".exe", ".lnk", ".msi", ".bat"],
+        "Документы": [".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".txt"],
+        "Изображения": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"],
+        "Медиа": [".mp3", ".mp4", ".avi", ".mkv", ".mov", ".wav"],
+        "Архивы": [".zip", ".rar", ".7z", ".tar", ".gz"],
+        "Код": [".py", ".js", ".html", ".css", ".java", ".cpp", ".cs"],
+        "Другое": []
+    },
     "exceptions": [],
-    "theme": "dark",
-    "sort_options": {
-        "by_date": false,
-        "by_type": false
-    },
-    "clean_options": {
-        "remove_broken_shortcuts": true,
-        "remove_temp_files": true
-    },
-    "auto_organize_enabled": true,
-    "security": {
-        "use_recycle_bin": true,
-        "backup_before_operations": true
-    }
+    "sort_options": { "by_type": false, "by_name": true, "by_date": true, "by_size": false },
+    "clean_options": { "remove_broken_shortcuts": true, "remove_temp_files": true, "remove_by_ext": true },
+    "security": { "use_recycle_bin": true, "backup_before_operations": true },
+    "auto_organize_enabled": true
 }

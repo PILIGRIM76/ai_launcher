@@ -1,8 +1,21 @@
 #installer/update_manager
+
+import logging
+import json
+import shutil
+from datetime import datetime
+from pathlib import Path
+from .utils import DATA_DIR
+
 class UndoManager:
     def __init__(self, max_history=10):
+        self.logger = logging.getLogger(__name__)
         self.history_stack = []
         self.max_history = max_history
+        # --- ИЗМЕНЕНИЕ: История отмены теперь в AppData ---
+        self.UNDO_DIR = DATA_DIR / "undo_history"
+        self.UNDO_DIR.mkdir(exist_ok=True)
+        self.logger.info("Менеджер отмены инициализирован.")
 
     def add_operation(self, operation_type, original_state):
         """Добавление операции в историю"""

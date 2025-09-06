@@ -1,6 +1,10 @@
 # main.py
 import sys
 import os
+
+# Устанавливаем версию в одном-единственном месте
+__version__ = "1.0.0"
+
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QStyleFactory
 from PyQt5.QtCore import Qt
@@ -11,10 +15,9 @@ sys.path.insert(0, project_root)
 from ui.main_window import MainWindow
 from core.utils import setup_logging, load_config
 from core.box_manager import BoxManager
-# --- ИЗМЕНЕНИЕ: Импортируем темы ---
+# --- ИЗМЕНЕНИЕ: Исправлена опечатка в имени переменной ---
 from ui.themes import DARK_THEME_QSS, LIGHT_THEME_QSS
 
-__version__ = "1.0.0"
 try:
     import resources_rc
 except ImportError:
@@ -22,7 +25,6 @@ except ImportError:
     pass
 
 
-# --- ИЗМЕНЕНИЕ: Новая функция для применения темы ---
 def apply_theme(app, theme_name):
     if theme_name == 'dark':
         app.setStyleSheet(DARK_THEME_QSS)
@@ -41,11 +43,12 @@ def main():
     app.setStyle(QStyleFactory.create('Fusion'))
     app.setWindowIcon(QIcon(":/icons/app_icon.png"))
 
-    # --- ИЗМЕНЕНИЕ: Применяем тему при запуске ---
     apply_theme(app, config.get("theme", "light"))
 
     box_manager = BoxManager(config)
-    window = MainWindow(config, box_manager)
+
+    # Передаем __version__ как аргумент
+    window = MainWindow(config, box_manager, __version__)
 
     window.show()
     sys.exit(app.exec_())

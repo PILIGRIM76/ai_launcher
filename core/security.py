@@ -4,12 +4,13 @@ import shutil
 import logging
 from datetime import datetime
 from pathlib import Path
-
+from .utils import DATA_DIR # --- ИЗМЕНЕНИЕ: Импортируем DATA_DIR
 
 class FileRecycleBin:
-    def __init__(self, bin_dir="recycle_bin"):
+    def __init__(self): # Убрали аргумент bin_dir
         self.logger = logging.getLogger(__name__)
-        self.bin_dir = Path(bin_dir)
+        # --- ИЗМЕНЕНИЕ: Корзина теперь в AppData ---
+        self.bin_dir = DATA_DIR / "recycle_bin"
         self.bin_dir.mkdir(exist_ok=True)
         self.logger.info(f"Корзина приложения инициализирована в: {self.bin_dir.resolve()}")
 
