@@ -8,6 +8,10 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 
 
+#
+# ОШИБОЧНАЯ СТРОКА ИМПОРТА БЫЛА ЗДЕСЬ И ТЕПЕРЬ УДАЛЕНА
+#
+
 class RulesDialog(QDialog):
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -22,7 +26,6 @@ class RulesDialog(QDialog):
         self._load_rules_list()
 
     def _init_ui(self):
-        # --- ИЗМЕНЕНИЕ: Упрощаем создание layout ---
         outer_layout = QVBoxLayout(self)
         main_layout = QHBoxLayout()
 
@@ -105,7 +108,6 @@ class RulesDialog(QDialog):
             self._on_rule_selected(-1)
 
     def _on_rule_selected(self, index):
-        # Перед сменой правила, сохраняем изменения из редактора в self.rules
         self._save_editor_to_rule(self.current_rule_index)
 
         self.current_rule_index = index
@@ -118,11 +120,18 @@ class RulesDialog(QDialog):
         self.editor_group.setEnabled(True)
         rule = self.rules[index]
 
-        # Загружаем данные в редактор
+        self.rule_name_edit.blockSignals(True)
+        self.rule_enabled_check.blockSignals(True)
+        self.action_path_edit.blockSignals(True)
+
         self.rule_name_edit.setText(rule.get("name", ""))
         self.rule_enabled_check.setChecked(rule.get("enabled", True))
         self.action_path_edit.setText(rule.get("action", {}).get("path", ""))
         self._display_conditions(rule.get("conditions", []))
+
+        self.rule_name_edit.blockSignals(False)
+        self.rule_enabled_check.blockSignals(False)
+        self.action_path_edit.blockSignals(False)
 
     def _display_conditions(self, conditions):
         while self.conditions_layout.count() > 1:
@@ -133,7 +142,6 @@ class RulesDialog(QDialog):
             self._add_condition_widget(cond)
 
     def _add_condition_widget(self, condition_data=None):
-        """Просто создает и добавляет виджет условия в layout."""
         if self.current_rule_index == -1: return
 
         widget = QFrame()
@@ -146,7 +154,6 @@ class RulesDialog(QDialog):
 
         remove_btn = QPushButton("X")
         remove_btn.setFixedSize(24, 24)
-        # --- ИЗМЕНЕНИЕ: Упрощаем удаление ---
         remove_btn.clicked.connect(widget.deleteLater)
 
         layout.addWidget(type_combo)
@@ -162,7 +169,6 @@ class RulesDialog(QDialog):
         self.conditions_layout.insertWidget(self.conditions_layout.count() - 1, widget)
 
     def _save_editor_to_rule(self, index):
-        """Собирает данные из редактора и сохраняет их в правило с указанным индексом."""
         if index == -1: return
 
         rule = self.rules[index]
@@ -187,7 +193,6 @@ class RulesDialog(QDialog):
         self.rules_list.item(index).setText(rule["name"])
 
     def _add_rule(self):
-        # Перед добавлением нового, сохраняем текущее
         self._save_editor_to_rule(self.current_rule_index)
         new_rule = {"name": "Новое правило", "enabled": True, "conditions": [],
                     "action": {"type": "move_to", "path": ""}}
@@ -209,7 +214,6 @@ class RulesDialog(QDialog):
             self.action_path_edit.setText(directory)
 
     def _save_and_accept(self):
-        # Сохраняем последнее активное правило перед выходом
         self._save_editor_to_rule(self.current_rule_index)
         self.config['advanced_rules'] = self.rules
         self.accept()
