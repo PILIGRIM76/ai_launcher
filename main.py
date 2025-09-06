@@ -14,7 +14,7 @@ from core.box_manager import BoxManager
 # --- ИЗМЕНЕНИЕ: Импортируем темы ---
 from ui.themes import DARK_THEME_QSS, LIGHT_THEME_QSS
 
-__version__ = "1.0.1"
+__version__ = "1.0.0"
 try:
     import resources_rc
 except ImportError:
