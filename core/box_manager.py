@@ -1,113 +1,121 @@
 # core/box_manager.py
-import json
 import logging
-from pathlib import Path
-from PyQt5.QtCore import QObject, QPoint, QSize
-# Важное исправление: импортируем BoxWidget из того же пакета 'core'
+import uuid
+from PyQt5.QtCore import QObject, pyqtSignal, QPoint, QSize
+from PyQt5.QtWidgets import QApplication
 from .box_widget import BoxWidget
+from .utils import save_config
 
 
 class BoxManager(QObject):
-    LAYOUT_FILE = Path("layout.json")
+    """
+    Управляет созданием, отображением и жизненным циклом виджетов-"ящиков".
+    """
+    # Сигнал для уведомления UI о необходимости обновить список ящиков
+    boxes_updated = pyqtSignal()
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
         self.config = config
-        self.boxes = {}
-        self.layout_data = self._load_layout()
-        self.are_visible = True  # Изначально считаем, что коробки видны
+        self.boxes = {}  # Словарь для хранения экземпляров BoxWidget, ключ - id ящика
+        self.are_visible = True
 
-    def create_all_boxes(self):
-        box_definitions = self.config.get("boxes", [])
+    def load_boxes(self):
+        """Загружает и отображает все ящики из конфигурации."""
+        self.hide_all_boxes()  # Сначала скроем старые, если они есть
+        self.boxes.clear()
+
+        box_definitions = self.config.get("desktop_boxes", [])
         for box_def in box_definitions:
-            name = box_def.get("name")
-            if name:
-                self.create_box(name)
-        self.logger.info(f"Создано {len(self.boxes)} контейнеров.")
+            box_id = box_def.get("id")
+            if not box_id:
+                self.logger.warning(f"Найден ящик без ID в конфиге: {box_def.get('name')}. Пропускаем.")
+                continue
 
-    def create_box(self, category_name):
-        if category_name in self.boxes:
-            return
+            box_widget = BoxWidget(
+                box_id=box_id,
+                name=box_def.get("name", "Без имени"),
+                config=box_def
+            )
 
-        box_widget = BoxWidget(category_name)
-
-        # Восстанавливаем позицию и размер
-        box_layout = self.layout_data.get(category_name)
-        if box_layout:
-            pos = QPoint(*box_layout.get("pos", [100, 100]))
-            size = QSize(*box_layout.get("size", [250, 300]))
+            # Устанавливаем геометрию
+            pos = QPoint(*box_def.get("position", [100, 100]))
+            size = QSize(*box_def.get("size", [250, 300]))
             box_widget.move(pos)
             box_widget.resize(size)
 
-        box_widget.widget_moved.connect(self.on_box_moved)
-        box_widget.widget_resized.connect(self.on_box_resized)
+            # Подключаем сигналы для сохранения изменений
+            box_widget.widget_moved.connect(self.update_box_properties)
+            box_widget.widget_resized.connect(self.update_box_properties)
 
-        self.boxes[category_name] = box_widget
-        box_widget.show()
+            self.boxes[box_id] = box_widget
 
-    def on_box_moved(self, name, pos):
-        if name in self.layout_data:
-            self.layout_data[name]['pos'] = [pos.x(), pos.y()]
+        self.logger.info(f"Загружено {len(self.boxes)} ящиков.")
+        self.show_all_boxes()
+
+    def create_box(self, name: str, position: list = [150, 150]):
+        """Создает новый ящик с настройками по умолчанию и сохраняет его в конфиг."""
+        new_box_id = f"box_{uuid.uuid4().hex[:8]}"
+        new_box_config = {
+            "id": new_box_id,
+            "name": name,
+            "position": position,
+            "size": [250, 300],
+            "color": "#2D2D2D",
+            "transparency": 85,
+            "font_size": 10
+        }
+        self.config["desktop_boxes"].append(new_box_config)
+        save_config(self.config)
+        self.load_boxes()  # Перезагружаем все ящики, чтобы отобразить новый
+        self.boxes_updated.emit()
+        self.logger.info(f"Создан новый ящик '{name}' с ID {new_box_id}.")
+
+    def delete_box(self, box_id: str):
+        """Удаляет ящик из конфига и с экрана."""
+        if box_id in self.boxes:
+            self.boxes[box_id].close()
+            del self.boxes[box_id]
+
+        self.config["desktop_boxes"] = [
+            box for box in self.config["desktop_boxes"] if box.get("id") != box_id
+        ]
+        save_config(self.config)
+        self.boxes_updated.emit()
+        self.logger.info(f"Ящик с ID {box_id} удален.")
+
+    def update_box_properties(self, box_id: str, new_properties: dict):
+        """Обновляет свойства ящика в конфиге и сохраняет."""
+        for box_def in self.config.get("desktop_boxes", []):
+            if box_def.get("id") == box_id:
+                box_def.update(new_properties)
+                self.logger.debug(f"Обновлены свойства для ящика {box_id}: {new_properties}")
+                break
+        save_config(self.config)
+        # Можно добавить сигнал для UI, если нужно обновлять настройки в реальном времени
+
+    def add_shortcut_to_box(self, box_id: str, shortcut_path: str):
+        """Добавляет ярлык в указанный ящик."""
+        if box_id in self.boxes:
+            self.boxes[box_id].add_item_from_path(shortcut_path)
         else:
-            self.layout_data[name] = {'pos': [pos.x(), pos.y()], 'size': [250, 300]}
-        self._save_layout()
-
-    def on_box_resized(self, name, size):
-        if name in self.layout_data:
-            self.layout_data[name]['size'] = [size.width(), size.height()]
-        else:
-            self.layout_data[name] = {'pos': [100, 100], 'size': [size.width(), size.height()]}
-        self._save_layout()
-
-    def add_file_to_box(self, category, file_path):
-        if category in self.boxes:
-            p = Path(file_path)
-            self.boxes[category].add_item(p.name, str(p))
-            self.logger.info(f"Файл '{p.name}' добавлен в контейнер '{category}'.")
-        else:
-            self.logger.warning(f"Контейнер '{category}' не найден для файла '{file_path}'.")
-
-    def remove_file_from_box(self, category, file_path):
-        # TODO: Реализовать логику удаления элемента из QListWidget
-        pass
-
-    def _load_layout(self):
-        if not self.LAYOUT_FILE.exists():
-            return {}
-        try:
-            with open(self.LAYOUT_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            self.logger.error(f"Ошибка загрузки layout.json: {e}")
-            return {}
-
-    def _save_layout(self):
-        try:
-            with open(self.LAYOUT_FILE, 'w', encoding='utf-8') as f:
-                json.dump(self.layout_data, f, indent=4)
-        except IOError as e:
-            self.logger.error(f"Ошибка сохранения layout.json: {e}")
+            self.logger.warning(f"Попытка добавить ярлык в несуществующий ящик с ID: {box_id}")
 
     def hide_all_boxes(self):
         for box in self.boxes.values():
             box.hide()
+        self.are_visible = False
 
     def show_all_boxes(self):
         for box in self.boxes.values():
             box.show()
+        self.are_visible = True
 
-    def toggle_visibility(self) -> bool:
-        """
-        Переключает видимость всех коробок и возвращает их новое состояние.
-        True - видны, False - скрыты.
-        """
+    def toggle_visibility(self):
+        """Переключает видимость всех ящиков."""
         if self.are_visible:
             self.hide_all_boxes()
-            self.are_visible = False
         else:
             self.show_all_boxes()
-            self.are_visible = True
-
-        self.logger.info(f"Видимость 'коробок' переключена на: {self.are_visible}")
-        return self.are_visible
+        self.logger.info(f"Видимость ящиков переключена на: {self.are_visible}")

@@ -3,7 +3,7 @@ import sys
 import os
 
 # Устанавливаем версию в одном-единственном месте
-__version__ = "1.0.0"
+__version__ = "2.0.0"  # --- ИЗМЕНЕНИЕ: Версия обновлена до 2.0.0 ---
 
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QStyleFactory
@@ -15,7 +15,9 @@ sys.path.insert(0, project_root)
 from ui.main_window import MainWindow
 from core.utils import setup_logging, load_config
 from core.box_manager import BoxManager
-# --- ИЗМЕНЕНИЕ: Исправлена опечатка в имени переменной ---
+# --- НАЧАЛО ИЗМЕНЕНИЯ: Импортируем новый менеджер ---
+from core.hotkey_manager import HotkeyManager
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from ui.themes import DARK_THEME_QSS, LIGHT_THEME_QSS
 
 try:
@@ -45,12 +47,26 @@ def main():
 
     apply_theme(app, config.get("theme", "light"))
 
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Инициализация и запуск новых компонентов ---
     box_manager = BoxManager(config)
 
-    # Передаем __version__ как аргумент
-    window = MainWindow(config, box_manager, __version__)
+    hotkey_manager = HotkeyManager(config)
+    hotkey_manager.start()
+
+    # Связываем сигналы от хоткеев с действиями
+    hotkey_manager.listener.toggle_boxes_visibility.connect(box_manager.toggle_visibility)
+    # hotkey_manager.listener.open_search.connect(...) # Связать с будущим окном поиска
+
+    # Передаем __version__ и новые менеджеры как аргументы
+    window = MainWindow(config, box_manager, hotkey_manager, __version__)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     window.show()
+
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Корректное завершение работы потока хоткеев ---
+    app.aboutToQuit.connect(hotkey_manager.stop)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     sys.exit(app.exec_())
 
 

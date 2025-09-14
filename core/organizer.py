@@ -2,9 +2,11 @@
 import shutil
 import logging
 from pathlib import Path
+
+import win32com
 from PyQt5.QtCore import QObject, pyqtSignal
 from .classifier import FileClassifier
-from .utils import get_all_desktop_paths
+from .utils import get_all_desktop_paths, DATA_DIR
 
 # ... (try/except для win32api без изменений) ...
 try:
@@ -20,6 +22,7 @@ class DesktopOrganizer(QObject):
     progress_updated = pyqtSignal(int)
     organization_completed = pyqtSignal(str)
     operation_logged = pyqtSignal(dict)
+    shortcut_assigned_to_box = pyqtSignal(str, str)
 
     def __init__(self, config):
         super().__init__()
@@ -97,7 +100,50 @@ class DesktopOrganizer(QObject):
 
     def _execute_action(self, src_path: Path, action: dict):
         action_type = action.get("type")
-        if action_type == "move_to":
+
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: Обработка нового типа действия ---
+        if action_type == "assign_to_box":
+            if not WIN32_AVAILABLE:
+                self.logger.warning("Невозможно создать ярлык: библиотека pywin32 не найдена.")
+                return None
+
+            box_id = action.get("box_id")
+            if not box_id:
+                self.logger.warning(f"Действие 'assign_to_box' для файла '{src_path.name}' не содержит box_id.")
+                return None
+
+            try:
+                # 1. Создаем папку для хранения ярлыков этого ящика
+                shortcuts_dir = DATA_DIR / "Shortcuts" / box_id
+                shortcuts_dir.mkdir(parents=True, exist_ok=True)
+
+                # 2. Создаем ярлык
+                shortcut_path = shortcuts_dir / f"{src_path.stem}.lnk"
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shortcut = shell.CreateShortCut(str(shortcut_path))
+                shortcut.TargetPath = str(src_path.resolve())
+                shortcut.WorkingDirectory = str(src_path.parent.resolve())
+                # shortcut.IconLocation = ... # Можно задать иконку
+                shortcut.save()
+
+                # 3. Сообщаем BoxManager о новом ярлыке
+                self.shortcut_assigned_to_box.emit(box_id, str(shortcut_path))
+
+                # 4. Удаляем исходный файл с рабочего стола (если это ярлык)
+                # Важно: удаляем только если это ярлык, чтобы не удалить оригинальный файл
+                if src_path.suffix.lower() == '.lnk':
+                    src_path.unlink()
+
+                self.logger.info(f"Правило сработало: '{src_path.name}' назначен в ящик ID '{box_id}'.")
+                # Для системы отмены нужно будет хранить информацию о созданном ярлыке
+                return {'original': str(src_path), 'new_shortcut': str(shortcut_path), 'type': 'assign'}
+
+            except Exception as e:
+                self.logger.error(f"Ошибка создания ярлыка для '{src_path.name}': {e}", exc_info=True)
+
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+        elif action_type == "move_to":
             dest_dir = Path(action.get("path"))
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_path = dest_dir / src_path.name
@@ -108,11 +154,10 @@ class DesktopOrganizer(QObject):
             try:
                 shutil.move(str(src_path), str(dest_path))
                 self.logger.info(f"Правило сработало: '{src_path.name}' -> '{dest_path}'")
-                return {'original': str(src_path), 'new': str(dest_path)}
+                return {'original': str(src_path), 'new': str(dest_path), 'type': 'move'}
             except Exception as e:
                 self.logger.error(f"Ошибка выполнения действия для '{src_path.name}': {e}")
         return None
-
     def _move_to_category(self, src_path: Path, category: str, desktop_path: Path):
         dest_dir = desktop_path / category
         dest_dir.mkdir(exist_ok=True)

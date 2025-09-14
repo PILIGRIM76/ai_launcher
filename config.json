@@ -3,10 +3,48 @@
     "auto_organize": true,
     "run_initial_organization": true,
     "theme": "light",
+    "desktop_boxes": [
+        {
+            "id": "box_programs_1",
+            "name": "Программы",
+            "position": [100, 100],
+            "size": [250, 300],
+            "color": "#2D2D2D",
+            "transparency": 85,
+            "font_size": 10
+        },
+        {
+            "id": "box_projects_2",
+            "name": "Проекты",
+            "position": [400, 100],
+            "size": [250, 300],
+            "color": "#3A3A3A",
+            "transparency": 90,
+            "font_size": 10
+        }
+    ],
+    "hotkeys": {
+        "show_hide_boxes": "alt+d",
+        "open_search": "alt+space"
+    },
     "advanced_rules": [
         {
-            "name": "Пример правила (отключено)",
-            "enabled": false,
+            "name": "Ярлыки программ в ящик",
+            "enabled": true,
+            "conditions": [
+                {
+                    "type": "extension_is",
+                    "value": ".lnk"
+                }
+            ],
+            "action": {
+                "type": "assign_to_box",
+                "box_id": "box_programs_1"
+            }
+        },
+        {
+            "name": "Счета в Документы",
+            "enabled": true,
             "conditions": [
                 {
                     "type": "name_contains",
@@ -24,7 +62,7 @@
         }
     ],
     "categories": {
-        "Программы": [".exe", ".lnk", ".msi", ".bat"],
+        "Программы": [".exe", ".msi", ".bat"],
         "Документы": [".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".txt"],
         "Изображения": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"],
         "Медиа": [".mp3", ".mp4", ".avi", ".mkv", ".mov", ".wav"],
