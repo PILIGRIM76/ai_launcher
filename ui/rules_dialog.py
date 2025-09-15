@@ -1,219 +1,178 @@
-# ui/rules_dialog.py
-import copy
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QListWidgetItem,
-    QGroupBox, QLabel, QLineEdit, QComboBox, QCheckBox, QFrame, QMessageBox,
-    QFileDialog
-)
+# Файл: ui/rules_dialog.py
+import os
+from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit,
+                             QCheckBox, QDialogButtonBox, QListWidget,
+                             QHBoxLayout, QPushButton, QComboBox, QFileDialog,
+                             QInputDialog, QMessageBox, QListWidgetItem, QWidget)
+from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
 
 
-#
-# ОШИБОЧНАЯ СТРОКА ИМПОРТА БЫЛА ЗДЕСЬ И ТЕПЕРЬ УДАЛЕНА
-#
-
 class RulesDialog(QDialog):
-    def __init__(self, config, parent=None):
+    def __init__(self, config, rule=None, parent=None):
         super().__init__(parent)
-        self.config = copy.deepcopy(config)
-        self.rules = self.config.get('advanced_rules', [])
-        self.current_rule_index = -1
+        self.config = config
+        self.rule_data = rule if rule else {}
 
-        self.setWindowTitle("Редактор Продвинутых Правил")
-        self.setGeometry(150, 150, 800, 600)
+        self.setWindowTitle("Редактор правил")
+        self.setMinimumWidth(500)
+
         self._init_ui()
-        self._connect_signals()
-        self._load_rules_list()
+        if self.rule_data:
+            self._load_rule_data()
 
     def _init_ui(self):
-        outer_layout = QVBoxLayout(self)
-        main_layout = QHBoxLayout()
+        main_layout = QVBoxLayout(self)
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: Сохраняем ссылку на QFormLayout ---
+        self.form_layout = QFormLayout()
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-        # Левая панель
-        left_panel = QVBoxLayout()
-        left_panel.addWidget(QLabel("Список правил:"))
-        self.rules_list = QListWidget()
-        left_panel.addWidget(self.rules_list)
-        rules_btn_layout = QHBoxLayout()
-        self.add_rule_btn = QPushButton("Добавить")
-        self.remove_rule_btn = QPushButton("Удалить")
-        rules_btn_layout.addWidget(self.add_rule_btn)
-        rules_btn_layout.addWidget(self.remove_rule_btn)
-        left_panel.addLayout(rules_btn_layout)
+        self.name_edit = QLineEdit()
+        self.enabled_check = QCheckBox("Правило включено")
+        self.form_layout.addRow("Название правила:", self.name_edit)
+        self.form_layout.addRow(self.enabled_check)
 
-        # Правая панель
-        right_panel = QVBoxLayout()
-        self.editor_group = QGroupBox("Редактор правила")
-        self.editor_group.setEnabled(False)
-        editor_layout = QVBoxLayout(self.editor_group)
-        name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Имя правила:"))
-        self.rule_name_edit = QLineEdit()
-        name_layout.addWidget(self.rule_name_edit)
-        self.rule_enabled_check = QCheckBox("Включено")
-        name_layout.addWidget(self.rule_enabled_check)
-        editor_layout.addLayout(name_layout)
-        line1 = QFrame();
-        line1.setFrameShape(QFrame.HLine)
-        editor_layout.addWidget(line1)
-        conditions_group = QGroupBox("Условия (должны выполняться ВСЕ)")
-        self.conditions_layout = QVBoxLayout(conditions_group)
-        editor_layout.addWidget(conditions_group)
-        self.add_condition_btn = QPushButton("Добавить условие")
-        self.conditions_layout.addWidget(self.add_condition_btn, 0, Qt.AlignRight)
-        line2 = QFrame();
-        line2.setFrameShape(QFrame.HLine)
-        editor_layout.addWidget(line2)
-        action_group = QGroupBox("Действие")
-        action_layout = QHBoxLayout(action_group)
-        action_layout.addWidget(QLabel("Переместить в папку:"))
-        self.action_path_edit = QLineEdit()
-        self.browse_path_btn = QPushButton("...")
-        action_layout.addWidget(self.action_path_edit)
-        action_layout.addWidget(self.browse_path_btn)
-        editor_layout.addWidget(action_group)
-        right_panel.addWidget(self.editor_group)
-        right_panel.addStretch()
+        conditions_layout = QVBoxLayout()
+        self.conditions_list = QListWidget()
+        conditions_layout.addWidget(self.conditions_list)
+        cond_btn_layout = QHBoxLayout()
+        add_cond_btn = QPushButton(QIcon(":/icons/add.png"), "Добавить условие")
+        del_cond_btn = QPushButton(QIcon(":/icons/delete.png"), "Удалить условие")
+        cond_btn_layout.addWidget(add_cond_btn)
+        cond_btn_layout.addWidget(del_cond_btn)
+        conditions_layout.addLayout(cond_btn_layout)
+        self.form_layout.addRow("Условия (должны выполняться все):", conditions_layout)
 
-        # Нижняя панель
-        bottom_layout = QHBoxLayout()
-        bottom_layout.addStretch()
-        self.save_button = QPushButton("Сохранить и закрыть")
-        self.cancel_button = QPushButton("Отмена")
-        bottom_layout.addWidget(self.save_button)
-        bottom_layout.addWidget(self.cancel_button)
+        self.action_type_combo = QComboBox()
+        self.action_type_combo.addItems(["Назначить в ящик", "Переместить в папку"])
+        self.form_layout.addRow("Действие:", self.action_type_combo)
 
-        main_layout.addLayout(left_panel, 1)
-        main_layout.addLayout(right_panel, 2)
-        outer_layout.addLayout(main_layout)
-        outer_layout.addLayout(bottom_layout)
+        self.box_selector_combo = QComboBox()
+        self.path_selector_widget = QWidget()
+        path_layout = QHBoxLayout(self.path_selector_widget)
+        path_layout.setContentsMargins(0, 0, 0, 0)
+        self.path_edit = QLineEdit()
+        browse_btn = QPushButton("...")
+        path_layout.addWidget(self.path_edit)
+        path_layout.addWidget(browse_btn)
 
-    def _connect_signals(self):
-        self.rules_list.currentRowChanged.connect(self._on_rule_selected)
-        self.add_rule_btn.clicked.connect(self._add_rule)
-        self.remove_rule_btn.clicked.connect(self._remove_rule)
-        self.save_button.clicked.connect(self._save_and_accept)
-        self.cancel_button.clicked.connect(self.reject)
-        self.browse_path_btn.clicked.connect(self._browse_folder)
-        self.add_condition_btn.clicked.connect(self._add_condition_widget)
+        self.populate_box_selector()
+        self.form_layout.addRow("Ящик:", self.box_selector_combo)
+        self.form_layout.addRow("Папка:", self.path_selector_widget)
 
-    def _load_rules_list(self):
-        self.rules_list.clear()
-        for rule in self.rules:
-            item = QListWidgetItem(rule.get("name", "Новое правило"))
-            self.rules_list.addItem(item)
-        if self.rules:
-            self.rules_list.setCurrentRow(0)
-        else:
-            self._on_rule_selected(-1)
+        main_layout.addLayout(self.form_layout)
 
-    def _on_rule_selected(self, index):
-        self._save_editor_to_rule(self.current_rule_index)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        main_layout.addWidget(self.button_box)
 
-        self.current_rule_index = index
-        if index == -1:
-            self.editor_group.setEnabled(False)
-            self.rule_name_edit.clear()
-            self._display_conditions([])
-            return
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        add_cond_btn.clicked.connect(self._add_condition)
+        del_cond_btn.clicked.connect(self._delete_condition)
+        self.action_type_combo.currentIndexChanged.connect(self._on_action_type_changed)
+        browse_btn.clicked.connect(self._browse_folder)
 
-        self.editor_group.setEnabled(True)
-        rule = self.rules[index]
+        self._on_action_type_changed(0)
 
-        self.rule_name_edit.blockSignals(True)
-        self.rule_enabled_check.blockSignals(True)
-        self.action_path_edit.blockSignals(True)
+    def populate_box_selector(self):
+        self.box_selector_combo.clear()
+        for box in self.config.get("desktop_boxes", []):
+            self.box_selector_combo.addItem(box["name"], box["id"])
 
-        self.rule_name_edit.setText(rule.get("name", ""))
-        self.rule_enabled_check.setChecked(rule.get("enabled", True))
-        self.action_path_edit.setText(rule.get("action", {}).get("path", ""))
-        self._display_conditions(rule.get("conditions", []))
+    def _load_rule_data(self):
+        self.name_edit.setText(self.rule_data.get("name", ""))
+        self.enabled_check.setChecked(self.rule_data.get("enabled", True))
 
-        self.rule_name_edit.blockSignals(False)
-        self.rule_enabled_check.blockSignals(False)
-        self.action_path_edit.blockSignals(False)
+        for cond in self.rule_data.get("conditions", []):
+            self._add_condition_item(cond)
 
-    def _display_conditions(self, conditions):
-        while self.conditions_layout.count() > 1:
-            widget = self.conditions_layout.itemAt(0).widget()
-            widget.deleteLater()
+        action = self.rule_data.get("action", {})
+        if action.get("type") == "assign_to_box":
+            self.action_type_combo.setCurrentIndex(0)
+            box_id = action.get("box_id")
+            index = self.box_selector_combo.findData(box_id)
+            if index != -1: self.box_selector_combo.setCurrentIndex(index)
+        elif action.get("type") == "move_to":
+            self.action_type_combo.setCurrentIndex(1)
+            self.path_edit.setText(action.get("path", ""))
 
-        for cond in conditions:
-            self._add_condition_widget(cond)
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Обращаемся к QFormLayout напрямую ---
+    def _on_action_type_changed(self, index):
+        is_assign = (index == 0)
+        # Получаем виджеты для каждой строки и управляем их видимостью
+        self.form_layout.labelForField(self.box_selector_combo).setVisible(is_assign)
+        self.box_selector_combo.setVisible(is_assign)
 
-    def _add_condition_widget(self, condition_data=None):
-        if self.current_rule_index == -1: return
+        self.form_layout.labelForField(self.path_selector_widget).setVisible(not is_assign)
+        self.path_selector_widget.setVisible(not is_assign)
 
-        widget = QFrame()
-        layout = QHBoxLayout(widget)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-        type_combo = QComboBox()
-        type_combo.addItems(["Имя файла содержит", "Расширение файла"])
+    def _add_condition(self):
+        cond_type, ok = QInputDialog.getItem(self, "Добавить условие", "Выберите тип условия:",
+                                             ["Имя содержит", "Расширение файла"], 0, False)
+        if not ok: return
 
-        value_edit = QLineEdit()
+        text, ok = QInputDialog.getText(self, "Значение", "Введите значение для условия:")
+        if not ok or not text: return
 
-        remove_btn = QPushButton("X")
-        remove_btn.setFixedSize(24, 24)
-        remove_btn.clicked.connect(widget.deleteLater)
+        condition_map = {"Имя содержит": "name_contains", "Расширение файла": "extension_is"}
+        condition = {"type": condition_map[cond_type], "value": text}
+        self._add_condition_item(condition)
 
-        layout.addWidget(type_combo)
-        layout.addWidget(value_edit)
-        layout.addWidget(remove_btn)
+    def _add_condition_item(self, condition):
+        display_map = {"name_contains": "Имя содержит", "extension_is": "Расширение"}
+        display_text = f"{display_map.get(condition['type'], '???')} '{condition['value']}'"
+        item = QListWidgetItem(display_text)
+        item.setData(Qt.UserRole, condition)
+        self.conditions_list.addItem(item)
 
-        if isinstance(condition_data, dict):
-            cond_type = condition_data.get("type", "name_contains")
-            index = 1 if cond_type == "extension_is" else 0
-            type_combo.setCurrentIndex(index)
-            value_edit.setText(condition_data.get("value", ""))
-
-        self.conditions_layout.insertWidget(self.conditions_layout.count() - 1, widget)
-
-    def _save_editor_to_rule(self, index):
-        if index == -1: return
-
-        rule = self.rules[index]
-        rule["name"] = self.rule_name_edit.text()
-        rule["enabled"] = self.rule_enabled_check.isChecked()
-
-        if "action" not in rule: rule["action"] = {}
-        rule["action"]["type"] = "move_to"
-        rule["action"]["path"] = self.action_path_edit.text()
-
-        conditions = []
-        for i in range(self.conditions_layout.count() - 1):
-            widget = self.conditions_layout.itemAt(i).widget()
-            type_combo = widget.findChild(QComboBox)
-            value_edit = widget.findChild(QLineEdit)
-
-            if type_combo and value_edit:
-                cond_type = "extension_is" if type_combo.currentIndex() == 1 else "name_contains"
-                conditions.append({"type": cond_type, "value": value_edit.text()})
-        rule["conditions"] = conditions
-
-        self.rules_list.item(index).setText(rule["name"])
-
-    def _add_rule(self):
-        self._save_editor_to_rule(self.current_rule_index)
-        new_rule = {"name": "Новое правило", "enabled": True, "conditions": [],
-                    "action": {"type": "move_to", "path": ""}}
-        self.rules.append(new_rule)
-        self._load_rules_list()
-        self.rules_list.setCurrentRow(len(self.rules) - 1)
-
-    def _remove_rule(self):
-        if self.current_rule_index == -1: return
-        reply = QMessageBox.question(self, "Подтверждение", "Удалить выбранное правило?",
-                                     QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            del self.rules[self.current_rule_index]
-            self._load_rules_list()
+    def _delete_condition(self):
+        selected_item = self.conditions_list.currentItem()
+        if selected_item:
+            self.conditions_list.takeItem(self.conditions_list.row(selected_item))
 
     def _browse_folder(self):
-        directory = QFileDialog.getExistingDirectory(self, "Выберите папку назначения")
-        if directory:
-            self.action_path_edit.setText(directory)
+        folder = QFileDialog.getExistingDirectory(self, "Выберите папку", os.path.expanduser("~"))
+        if folder:
+            self.path_edit.setText(folder)
 
-    def _save_and_accept(self):
-        self._save_editor_to_rule(self.current_rule_index)
-        self.config['advanced_rules'] = self.rules
-        self.accept()
+    def get_rule_data(self):
+        if not self.name_edit.text():
+            QMessageBox.warning(self, "Ошибка", "Название правила не может быть пустым.")
+            return None
+
+        conditions = []
+        for i in range(self.conditions_list.count()):
+            item = self.conditions_list.item(i)
+            conditions.append(item.data(Qt.UserRole))
+
+        if not conditions:
+            QMessageBox.warning(self, "Ошибка", "Нужно добавить хотя бы одно условие.")
+            return None
+
+        action = {}
+        if self.action_type_combo.currentIndex() == 0:
+            action["type"] = "assign_to_box"
+            action["box_id"] = self.box_selector_combo.currentData()
+        else:
+            action["type"] = "move_to"
+            action["path"] = self.path_edit.text()
+            if not action["path"]:
+                QMessageBox.warning(self, "Ошибка", "Необходимо указать путь к папке.")
+                return None
+
+        return {
+            "name": self.name_edit.text(),
+            "enabled": self.enabled_check.isChecked(),
+            "conditions": conditions,
+            "action": action
+        }
+
+    @staticmethod
+    def edit_rule(config, rule=None, parent=None):
+        dialog = RulesDialog(config, rule, parent)
+        result = dialog.exec_()
+        if result == QDialog.Accepted:
+            return dialog.get_rule_data(), True
+        return None, False

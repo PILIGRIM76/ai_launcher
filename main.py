@@ -1,9 +1,10 @@
-# main.py
+# Файл: main.py
 import sys
 import os
+import logging
+from pathlib import Path
 
-# Устанавливаем версию в одном-единственном месте
-__version__ = "2.0.0"  # --- ИЗМЕНЕНИЕ: Версия обновлена до 2.0.0 ---
+__version__ = "3.2.0"
 
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QApplication, QStyleFactory
@@ -13,19 +14,19 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
 from ui.main_window import MainWindow
-from core.utils import setup_logging, load_config
+from core.utils import setup_logging, load_config, save_config, get_all_desktop_paths
 from core.box_manager import BoxManager
-# --- НАЧАЛО ИЗМЕНЕНИЯ: Импортируем новый менеджер ---
 from core.hotkey_manager import HotkeyManager
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+from core.organizer import DesktopOrganizer
+from core.watcher import DesktopWatcher
+from core.wallpaper_manager import WallpaperManager
 from ui.themes import DARK_THEME_QSS, LIGHT_THEME_QSS
 
 try:
     import resources_rc
 except ImportError:
-    print("Внимание: файл ресурсов 'resources_rc.py' не найден.")
+    print("Внимание: файл ресурсов 'resources_rc.py' не найден. Иконки могут не отображаться.")
     pass
-
 
 def apply_theme(app, theme_name):
     if theme_name == 'dark':
@@ -33,12 +34,12 @@ def apply_theme(app, theme_name):
     else:
         app.setStyleSheet(LIGHT_THEME_QSS)
 
-
 def main():
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
 
     setup_logging()
+    logger = logging.getLogger(__name__)
     config = load_config()
 
     app = QApplication(sys.argv)
@@ -47,28 +48,54 @@ def main():
 
     apply_theme(app, config.get("theme", "light"))
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Инициализация и запуск новых компонентов ---
     box_manager = BoxManager(config)
-
     hotkey_manager = HotkeyManager(config)
+    organizer = DesktopOrganizer(config)
+    wallpaper_manager = WallpaperManager(config)
+
+    desktop_paths = get_all_desktop_paths()
+    watcher = None
+    if desktop_paths:
+        watcher = DesktopWatcher(organizer, desktop_paths[0])
+        if config.get("auto_organize_enabled", True):
+            watcher.start()
+
+    hotkey_manager.listener.toggle_boxes_visibility.connect(box_manager.toggle_visibility)
+    organizer.shortcut_assigned_to_box.connect(box_manager.add_shortcut_to_box)
     hotkey_manager.start()
 
-    # Связываем сигналы от хоткеев с действиями
-    hotkey_manager.listener.toggle_boxes_visibility.connect(box_manager.toggle_visibility)
-    # hotkey_manager.listener.open_search.connect(...) # Связать с будущим окном поиска
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем обработку ручного перетаскивания ---
+    def handle_file_drop(box_id, file_path):
+        logger.info(f"Обработка перетаскивания файла '{file_path}' в ящик {box_id}")
+        # Создаем временное "действие" для органайзера
+        action = {"type": "assign_to_box", "box_id": box_id}
+        organizer._execute_action(Path(file_path), action)
 
-    # Передаем __version__ и новые менеджеры как аргументы
-    window = MainWindow(config, box_manager, hotkey_manager, __version__)
+    box_manager.file_dropped.connect(handle_file_drop)
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
+    window = MainWindow(
+        config=config,
+        box_manager=box_manager,
+        hotkey_manager=hotkey_manager,
+        wallpaper_manager=wallpaper_manager,
+        version=__version__
+    )
     window.show()
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Корректное завершение работы потока хоткеев ---
-    app.aboutToQuit.connect(hotkey_manager.stop)
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    if config.get("run_initial_organization", True):
+        logger.info("Запуск первоначальной организации рабочего стола...")
+        organizer.organize_all_desktops()
 
+    def on_quit():
+        hotkey_manager.stop()
+        if watcher and watcher.isRunning():
+            watcher.stop()
+            watcher.wait()
+        save_config(config)
+
+    app.aboutToQuit.connect(on_quit)
     sys.exit(app.exec_())
-
 
 if __name__ == "__main__":
     main()

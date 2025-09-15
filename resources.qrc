@@ -1,13 +1,15 @@
 <!DOCTYPE RCC><RCC version="1.0">
-<qresource prefix="icons">
-    <file>app_icon.png</file>
-    <file>icons/home.png</file>
-    <file>icons/users.png</file>
-    <file>icons/list.png</file>
-    <file>icons/settings.png</file>
-    <file>icons/play.png</file>
-    <file>icons/trash-2.png</file>
-    <file>icons/copy.png</file>
-    <file>icons/rotate-ccw.png</file>
+<qresource prefix="/">
+    <file>icons/app_icon.png</file>
+    <file>icons/box.png</file>
+    <file>icons/rules.png</file>
+    <file>icons/snapshot.png</file>
+    <file>icons/wallpaper.png</file>
+    <file>icons/widgets.png</file>
+    <file>icons/search.png</file>
+    <file>icons/hotkey.png</file>
+    <file>icons/add.png</file>
+    <file>icons/delete.png</file>
+    <file>icons/edit.png</file>
 </qresource>
 </RCC>
