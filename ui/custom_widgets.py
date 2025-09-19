@@ -6,7 +6,10 @@ from PyQt5.QtGui import QDrag
 
 
 class DraggableListWidget(QListWidget):
-    item_dragged_out = pyqtSignal(QListWidgetItem)
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Сигнал теперь передает путь к ярлыку ---
+    item_dragged_out = pyqtSignal(str)  # shortcut_path
+
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -18,12 +21,12 @@ class DraggableListWidget(QListWidget):
         if not item:
             return
 
-        file_path = item.data(Qt.UserRole)
-        if not file_path or not os.path.exists(file_path):
+        shortcut_path = item.data(Qt.UserRole)
+        if not shortcut_path or not os.path.exists(shortcut_path):
             return
 
         mimeData = QMimeData()
-        mimeData.setUrls([QUrl.fromLocalFile(file_path)])
+        mimeData.setUrls([QUrl.fromLocalFile(shortcut_path)])
 
         drag = QDrag(self)
         drag.setMimeData(mimeData)
@@ -32,17 +35,12 @@ class DraggableListWidget(QListWidget):
         drag.setPixmap(pixmap)
         drag.setHotSpot(QPoint(24, 24))
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Используем CopyAction, так как Windows предпочитает его ---
-        result = drag.exec_(Qt.CopyAction | Qt.MoveAction)
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: Используем MoveAction, так как мы хотим "переместить" файл из ящика ---
+        result = drag.exec_(Qt.MoveAction)
 
-        # Проверяем, была ли операция успешной (не отменена)
-        if result != Qt.IgnoreAction:
-            # Поскольку мы не можем надежно отследить, была ли это копия или перемещение,
-            # мы просто удаляем наш ярлык. Пользователь всегда может его восстановить,
-            # перетащив обратно или через "Обновить значки".
-            try:
-                os.remove(file_path)
-                self.item_dragged_out.emit(item)
-            except OSError as e:
-                print(f"Не удалось удалить ярлык после перетаскивания: {e}")
+        if result == Qt.MoveAction:
+            # Сообщаем системе, что нужно сделать оригинал видимым и удалить ярлык
+            self.item_dragged_out.emit(shortcut_path)
+            # Удаляем сам элемент из списка в UI
+            self.takeItem(self.row(item))
         # --- КОНЕЦ ИЗМЕНЕНИЯ ---

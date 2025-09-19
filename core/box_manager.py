@@ -15,6 +15,10 @@ class BoxManager(QObject):
     request_create_new_box = pyqtSignal()
     state_changed = pyqtSignal(str, dict)
     file_dropped = pyqtSignal(str, str)
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем недостающий сигнал ---
+    request_unhide_original = pyqtSignal(str)
+
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def __init__(self, config, parent=None):
         super().__init__(parent)
@@ -29,6 +33,7 @@ class BoxManager(QObject):
         box_definitions = self.config.get("desktop_boxes", [])
         global_border_settings = self.config.get("global_border_settings", {})
         global_appearance_settings = self.config.get("global_appearance_settings", {})
+
         for box_def in box_definitions:
             box_id = box_def.get("id")
             if not box_id:
@@ -52,6 +57,9 @@ class BoxManager(QObject):
             box_widget.state_changed.connect(self.state_changed)
             box_widget.refresh_requested.connect(self.refresh_box_content)
             box_widget.file_dropped.connect(self.file_dropped)
+            # --- НАЧАЛО ИЗМЕНЕНИЯ: Подключаем сигнал от виджета к нашему новому сигналу ---
+            box_widget.request_unhide_original.connect(self.request_unhide_original)
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             self.boxes[box_id] = box_widget
 

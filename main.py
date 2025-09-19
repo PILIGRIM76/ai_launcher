@@ -28,11 +28,13 @@ except ImportError:
     print("Внимание: файл ресурсов 'resources_rc.py' не найден. Иконки могут не отображаться.")
     pass
 
+
 def apply_theme(app, theme_name):
     if theme_name == 'dark':
         app.setStyleSheet(DARK_THEME_QSS)
     else:
         app.setStyleSheet(LIGHT_THEME_QSS)
+
 
 def main():
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
@@ -64,14 +66,15 @@ def main():
     organizer.shortcut_assigned_to_box.connect(box_manager.add_shortcut_to_box)
     hotkey_manager.start()
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем обработку ручного перетаскивания ---
     def handle_file_drop(box_id, file_path):
         logger.info(f"Обработка перетаскивания файла '{file_path}' в ящик {box_id}")
-        # Создаем временное "действие" для органайзера
         action = {"type": "assign_to_box", "box_id": box_id}
         organizer._execute_action(Path(file_path), action)
 
     box_manager.file_dropped.connect(handle_file_drop)
+
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Подключаем сигнал для "вытаскивания" файлов ---
+    box_manager.request_unhide_original.connect(organizer.unhide_and_cleanup)
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     window = MainWindow(
@@ -96,6 +99,7 @@ def main():
 
     app.aboutToQuit.connect(on_quit)
     sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()

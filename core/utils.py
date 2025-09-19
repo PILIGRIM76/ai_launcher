@@ -32,11 +32,9 @@ logger = setup_logging()
 
 
 def load_config() -> dict:
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Убираем видимость заголовка из индивидуальных настроек ---
     default_box_appearance = {
-        "color": "#3A3A3A", "font": "Segoe UI,16"
+        "color": "#3A3A3A", "font": "Segoe UI,16", "header_visibility": "always"
     }
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
     default_box_state = {
         "is_collapsed": False, "is_locked": False, "view_mode": "icon",
         "sort_by": "none", "sort_order": "asc"
@@ -48,12 +46,9 @@ def load_config() -> dict:
         "global_border_settings": {
             "enabled": True, "color": "#000000", "width": 1
         },
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем видимость заголовка в глобальные настройки ---
         "global_appearance_settings": {
-            "transparency_bg": 85,
-            "header_visibility": "always"
+            "transparency_bg": 85
         },
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         "desktop_boxes": [
             {**{"id": "default_programs", "name": "Программы", "position": [50, 50], "size": [250, 300]},
              **default_box_state, "appearance": default_box_appearance},
@@ -65,32 +60,38 @@ def load_config() -> dict:
              **default_box_state, "appearance": default_box_appearance}
         ],
         "hotkeys": {"show_hide_boxes": "alt+d", "open_search": "alt+space"},
+        # --- НАЧАЛО ИЗМЕНЕНИЯ: Исправляем логику правил ---
         "advanced_rules": [
-            {"name": "Ярлыки", "enabled": True, "conditions": [{"type": "extension_is", "value": ".lnk"}],
-             "action": {"type": "assign_to_box", "box_id": "default_programs"}},
-            {"name": "Приложения", "enabled": True, "conditions": [{"type": "extension_is", "value": ".exe"}],
-             "action": {"type": "assign_to_box", "box_id": "default_programs"}},
-            {"name": "Установщики", "enabled": True, "conditions": [{"type": "extension_is", "value": ".msi"}],
-             "action": {"type": "assign_to_box", "box_id": "default_programs"}},
-            {"name": "PNG Изображения", "enabled": True, "conditions": [{"type": "extension_is", "value": ".png"}],
-             "action": {"type": "assign_to_box", "box_id": "default_images"}},
-            {"name": "JPG Изображения", "enabled": True, "conditions": [{"type": "extension_is", "value": ".jpg"}],
-             "action": {"type": "assign_to_box", "box_id": "default_images"}},
-            {"name": "JPEG Изображения", "enabled": True, "conditions": [{"type": "extension_is", "value": ".jpeg"}],
-             "action": {"type": "assign_to_box", "box_id": "default_images"}},
-            {"name": "Скриншоты (Снимок)", "enabled": True,
-             "conditions": [{"type": "name_contains", "value": "Снимок"}],
-             "action": {"type": "assign_to_box", "box_id": "default_screenshots"}},
-            {"name": "Скриншоты (Screenshot)", "enabled": True,
-             "conditions": [{"type": "name_contains", "value": "Screenshot"}],
-             "action": {"type": "assign_to_box", "box_id": "default_screenshots"}},
-            {"name": "ZIP Архивы", "enabled": True, "conditions": [{"type": "extension_is", "value": ".zip"}],
-             "action": {"type": "assign_to_box", "box_id": "default_archives"}},
-            {"name": "RAR Архивы", "enabled": True, "conditions": [{"type": "extension_is", "value": ".rar"}],
-             "action": {"type": "assign_to_box", "box_id": "default_archives"}},
-            {"name": "7Z Архивы", "enabled": True, "conditions": [{"type": "extension_is", "value": ".7z"}],
-             "action": {"type": "assign_to_box", "box_id": "default_archives"}}
+            {
+                "name": "Ярлыки в Программы", "enabled": True,
+                "conditions": [{"type": "extension_is", "value": ".lnk"}],
+                "action": {"type": "assign_to_box", "box_id": "default_programs"}
+            },
+            {
+                "name": "Исполняемые файлы в Программы", "enabled": True,
+                "conditions": [{"type": "extension_is", "value": ".exe"}, {"type": "extension_is", "value": ".msi"}],
+                "action": {"type": "assign_to_box", "box_id": "default_programs"}
+            },
+            {
+                "name": "Изображения", "enabled": True,
+                "conditions": [{"type": "extension_is", "value": ".png"}, {"type": "extension_is", "value": ".jpg"},
+                               {"type": "extension_is", "value": ".jpeg"}],
+                "action": {"type": "assign_to_box", "box_id": "default_images"}
+            },
+            {
+                "name": "Скриншоты", "enabled": True,
+                "conditions": [{"type": "name_contains", "value": "Снимок"},
+                               {"type": "name_contains", "value": "Screenshot"}],
+                "action": {"type": "assign_to_box", "box_id": "default_screenshots"}
+            },
+            {
+                "name": "Архивы", "enabled": True,
+                "conditions": [{"type": "extension_is", "value": ".zip"}, {"type": "extension_is", "value": ".rar"},
+                               {"type": "extension_is", "value": ".7z"}],
+                "action": {"type": "assign_to_box", "box_id": "default_archives"}
+            }
         ],
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         "categories": {"Программы": [".exe", ".lnk", ".msi", ".bat"],
                        "Документы": [".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".txt"],
                        "Изображения": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"],

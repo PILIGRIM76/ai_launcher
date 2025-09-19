@@ -10,6 +10,8 @@ from .utils import get_all_desktop_paths, DATA_DIR
 try:
     import win32com.client
     import win32api, win32con
+    # --- ИЗМЕНЕНИЕ: Импортируем класс ошибки, чтобы ее можно было "поймать" ---
+    import pywintypes
 
     WIN32_AVAILABLE = True
 except ImportError:
@@ -30,10 +32,6 @@ class DesktopOrganizer(QObject):
         all_desktops = get_all_desktop_paths()
         self.desktop_path = Path(all_desktops[0]) if all_desktops else None
         self.auto_organize = True
-        # --- НАЧАЛО ИЗМЕНЕНИЯ: Создаем папку для хранения оригиналов ---
-        self.storage_dir = DATA_DIR / "Storage"
-        self.storage_dir.mkdir(exist_ok=True)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def organize_all_desktops(self):
         if not self.desktop_path:
@@ -49,7 +47,17 @@ class DesktopOrganizer(QObject):
                 self.logger.error(f"Директория рабочего стола не найдена: {desktop_path}")
                 return
 
-            entries = list(desktop_path.iterdir())
+            # --- ИЗМЕНЕНИЕ: Добавляем обработку ошибок доступа при чтении атрибутов ---
+            entries = []
+            for e in desktop_path.iterdir():
+                try:
+                    # Пропускаем скрытые файлы
+                    if not (win32api.GetFileAttributes(str(e)) & win32con.FILE_ATTRIBUTE_HIDDEN):
+                        entries.append(e)
+                except pywintypes.error:
+                    self.logger.warning(f"Нет доступа к файлу '{e.name}', пропускаем.")
+                    continue
+
             total_items = len(entries)
             moved_count = 0
             operation_details = {'type': 'organize', 'moved_files': []}
@@ -84,10 +92,8 @@ class DesktopOrganizer(QObject):
         if action:
             self._execute_action(file_path, action)
 
-    # --- НАЧАЛО ИЗМЕНЕНИЯ: Полностью переписанная логика обработки ---
     def _execute_action(self, src_path: Path, action: dict):
         action_type = action.get("type")
-        stored_path = None  # Для отката в случае ошибки
 
         if action_type == "assign_to_box":
             if not WIN32_AVAILABLE:
@@ -100,28 +106,28 @@ class DesktopOrganizer(QObject):
                 return None
 
             try:
-                # 1. Перемещаем ОРИГИНАЛ с рабочего стола в наше хранилище
-                stored_path = self.storage_dir / src_path.name
-                counter = 1
-                while stored_path.exists():
-                    stored_path = self.storage_dir / f"{src_path.stem}_{counter}{src_path.suffix}"
-                    counter += 1
-                shutil.move(str(src_path), str(stored_path))
-                self.logger.info(f"Файл '{src_path.name}' перемещен в хранилище: {stored_path}")
-
-                # 2. Создаем папку для ярлыков этого ящика
                 shortcuts_dir = DATA_DIR / "Shortcuts" / box_id
                 shortcuts_dir.mkdir(parents=True, exist_ok=True)
 
-                # 3. Создаем ярлык, который указывает на файл в хранилище
-                shortcut_path = shortcuts_dir / f"{stored_path.stem}.lnk"
+                shortcut_path = shortcuts_dir / f"{src_path.stem}.lnk"
                 shell = win32com.client.Dispatch("WScript.Shell")
                 shortcut = shell.CreateShortCut(str(shortcut_path))
-                shortcut.TargetPath = str(stored_path.resolve())
-                shortcut.WorkingDirectory = str(self.storage_dir.resolve())
+                shortcut.TargetPath = str(src_path.resolve())
+                shortcut.WorkingDirectory = str(src_path.parent.resolve())
                 shortcut.save()
 
-                # 4. Сообщаем BoxManager о новом ярлыке для отображения
+                # --- ИЗМЕНЕНИЕ: Теперь этот блок будет работать правильно ---
+                try:
+                    win32api.SetFileAttributes(str(src_path), win32con.FILE_ATTRIBUTE_HIDDEN)
+                    self.logger.info(f"Файл '{src_path.name}' на рабочем столе скрыт.")
+                except pywintypes.error as e:
+                    if e.winerror == 5: # Ошибка 5 - это "Отказано в доступе"
+                        self.logger.warning(f"Не удалось скрыть файл '{src_path.name}': Отказано в доступе. "
+                                            f"Это может быть системный ярлык. Пропускаем скрытие.")
+                    else:
+                        # Если это другая ошибка, мы все равно хотим ее видеть
+                        self.logger.error(f"Неизвестная ошибка Win32 при скрытии файла '{src_path.name}': {e}")
+
                 self.shortcut_assigned_to_box.emit(box_id, str(shortcut_path))
 
                 self.logger.info(f"Правило сработало: '{src_path.name}' назначен в ящик ID '{box_id}'.")
@@ -129,16 +135,32 @@ class DesktopOrganizer(QObject):
 
             except Exception as e:
                 self.logger.error(f"Ошибка при назначении файла в ящик '{src_path.name}': {e}", exc_info=True)
-                # Если что-то пошло не так, пытаемся вернуть файл на рабочий стол
-                if stored_path and stored_path.exists():
-                    shutil.move(str(stored_path), str(src_path))
-                    self.logger.warning(f"Файл '{src_path.name}' возвращен на рабочий стол из-за ошибки.")
                 return None
 
-        elif action_type == "move_to":
-            # Эта логика остается прежней
-            # ...
-            pass
-
         return None
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+    def unhide_and_cleanup(self, shortcut_path_str: str):
+        if not WIN32_AVAILABLE: return
+
+        shortcut_path = Path(shortcut_path_str)
+        try:
+            shell = win32com.client.Dispatch("WScript.Shell")
+            shortcut = shell.CreateShortCut(str(shortcut_path))
+            original_path = Path(shortcut.TargetPath)
+
+            if original_path.exists():
+                try:
+                    current_attrs = win32api.GetFileAttributes(str(original_path))
+                    win32api.SetFileAttributes(str(original_path), current_attrs & ~win32con.FILE_ATTRIBUTE_HIDDEN)
+                    self.logger.info(f"Файл '{original_path.name}' снова видим на рабочем столе.")
+                except pywintypes.error as e:
+                     if e.winerror == 5:
+                         self.logger.warning(f"Не удалось сделать видимым файл '{original_path.name}': Отказано в доступе.")
+                     else:
+                         raise e
+
+            shortcut_path.unlink()
+            self.logger.info(f"Ярлык '{shortcut_path.name}' удален.")
+
+        except Exception as e:
+            self.logger.error(f"Ошибка при восстановлении файла из ящика: {e}")
