@@ -4,10 +4,10 @@ import os
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLabel, QListView,
-                             QSizeGrip, QListWidgetItem, QFontDialog, QSizePolicy, QFrame,
+                             QListWidgetItem, QSizePolicy, QFrame,
                              QMenu, QAction, QPushButton, QHBoxLayout, QActionGroup,
-                             QGraphicsOpacityEffect, QFileIconProvider)
-from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QFileInfo
+                             QFileIconProvider)
+from PyQt5.QtCore import Qt, QPoint, pyqtSignal, QSize, QPropertyAnimation, QEasingCurve, QFileInfo, QTimer
 from PyQt5.QtGui import QColor, QFont, QIcon, QPixmap
 
 try:
@@ -26,9 +26,8 @@ from ui.custom_widgets import DraggableListWidget
 
 
 class BoxWidget(QWidget):
-    # ... (весь код до метода _get_file_icon без изменений) ...
     widget_moved = pyqtSignal(str, dict)
-    configure_requested = pyqtSignal(str)
+    configure_requested = pyqtSignal(str, str)
     rename_requested = pyqtSignal(str, str)
     delete_requested = pyqtSignal(str)
     refresh_requested = pyqtSignal(str)
@@ -49,7 +48,7 @@ class BoxWidget(QWidget):
         self.old_pos = self.pos()
 
         self.is_locked = self.config.get("is_locked", False)
-        self.is_collapsed = self.config.get("is_collapsed", False)
+        self.is_collapsed = True
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnBottomHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -112,7 +111,7 @@ class BoxWidget(QWidget):
 
         self.apply_styles()
         self._setup_animation()
-        self._apply_state()
+        QTimer.singleShot(10, self._apply_state)
 
     def _on_item_double_clicked(self, item: QListWidgetItem):
         shortcut_path = item.data(Qt.UserRole)
@@ -155,19 +154,22 @@ class BoxWidget(QWidget):
     def _animate_to_state(self, collapsed: bool):
         self.animation.stop()
         start_size = self.size()
-        header_height = self.header_widget.sizeHint().height()
+
+        header_height = self.header_widget.sizeHint().height() + 4
+
         full_height = self.config.get("size", [250, 300])[1]
         end_height = header_height if collapsed else full_height
         end_size = QSize(start_size.width(), end_height)
 
         if start_size == end_size: return
 
-        self.animation.setStartValue(start_size)
-        self.animation.setEndValue(end_size)
-
         if not collapsed:
+            self.file_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             self.file_list.setVisible(True)
             self.separator_line.setVisible(True)
+
+        self.animation.setStartValue(start_size)
+        self.animation.setEndValue(end_size)
 
         try:
             self.animation.finished.disconnect()
@@ -175,10 +177,14 @@ class BoxWidget(QWidget):
             pass
 
         if collapsed:
-            self.animation.finished.connect(
-                lambda: (self.file_list.setVisible(False), self.separator_line.setVisible(False)))
+            self.animation.finished.connect(self._on_collapse_animation_finished)
 
         self.animation.start()
+
+    def _on_collapse_animation_finished(self):
+        self.file_list.setVisible(False)
+        self.separator_line.setVisible(False)
+        self.file_list.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
     def _update_placeholder_visibility(self):
         is_empty = (self.file_list.count() == 0)
@@ -206,11 +212,6 @@ class BoxWidget(QWidget):
         list_mode_action.setCheckable(True)
         list_mode_action.setChecked(self.config.get("view_mode", "icon") == "list")
         list_mode_action.triggered.connect(lambda checked: self.set_view_mode("list" if checked else "icon"))
-        view_menu.addSeparator()
-        collapse_action = view_menu.addAction("Свернутое ящик")
-        collapse_action.setCheckable(True)
-        collapse_action.setChecked(self.is_collapsed)
-        collapse_action.triggered.connect(self.toggle_collapse)
         view_menu.addSeparator()
         view_menu.addAction("Изменить внешний вид...").triggered.connect(
             lambda: self.configure_requested.emit(self.box_id))
@@ -242,17 +243,23 @@ class BoxWidget(QWidget):
         is_visible = not self.is_collapsed
         self.file_list.setVisible(is_visible)
         self.separator_line.setVisible(is_visible)
-        header_height = self.header_widget.sizeHint().height()
+
+        if self.is_collapsed:
+            self.file_list.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        else:
+            self.file_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        header_height = self.header_widget.sizeHint().height() + 4
         full_height = self.config.get("size", [250, 300])[1]
         initial_height = header_height if self.is_collapsed else full_height
+
+        # Убираем setFixedHeight, чтобы анимация могла работать
+        self.setMinimumHeight(header_height)
+        if not self.is_collapsed:
+            self.setMaximumHeight(full_height)
+
         self.resize(self.size().width(), initial_height)
         self._update_placeholder_visibility()
-
-    def toggle_collapse(self, checked):
-        self.is_collapsed = checked
-        self._apply_state()
-        self.state_changed.emit(self.box_id, {"is_collapsed": self.is_collapsed})
-        self.logger.info(f"Ящик {self.box_id} свернут: {self.is_collapsed}")
 
     def toggle_lock(self, checked):
         self.is_locked = checked
@@ -326,15 +333,17 @@ class BoxWidget(QWidget):
     def enterEvent(self, event):
         if self.global_appearance_settings.get("header_visibility") == "on_hover":
             self.header_widget.show()
-        if self.is_collapsed:
-            self._animate_to_state(False)
+
+        self.is_collapsed = False
+        self._animate_to_state(collapsed=False)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         if self.global_appearance_settings.get("header_visibility") == "on_hover":
             self.header_widget.hide()
-        if self.is_collapsed:
-            self._animate_to_state(True)
+
+        self.is_collapsed = True
+        self._animate_to_state(collapsed=True)
         super().leaveEvent(event)
 
     def _get_file_icon(self, path_str: str) -> QIcon:
@@ -344,13 +353,9 @@ class BoxWidget(QWidget):
             flags = shellcon.SHGFI_ICON | shellcon.SHGFI_USEFILEATTRIBUTES | shellcon.SHGFI_LARGEICON
             ret, info = shell.SHGetFileInfo(path_str, 0, flags)
             h_icon = info[0]
-
             if h_icon == 0:
                 return QFileIconProvider().icon(QFileInfo(path_str))
-
-            # --- ИЗМЕНЕНИЕ: Используем правильный метод из QtWinExtras ---
             pixmap = QtWinExtras.QtWin.fromHICON(h_icon)
-
             win32gui.DestroyIcon(h_icon)
             return QIcon(pixmap)
         except Exception as e:
@@ -373,7 +378,7 @@ class BoxWidget(QWidget):
         for path in file_paths:
             self.add_item_from_path(path)
         self._apply_sorting()
-        self._update_placeholder_visibility()
+        self._apply_state()
 
     def _apply_sorting(self):
         sort_by = self.config.get("sort_by", "none")
